@@ -63,6 +63,17 @@ class SectorsConnectionError(SectorsError):
     """Timeout / connection failure. charge() was never called — 0 cr."""
 
 
+# Short labels for §8-style trace rows: "ohlcv:/v2/daily/BBRI/ [cache]"
+TRACE_LABELS = {
+    "ohlcv": "ohlcv",
+    "foreign_flow": "flow",
+    "broker_summary": "broksum",
+    "fundamentals": "fund",
+    "screener": "screen",
+    "daily_close": "close",
+}
+
+
 def _normalize_symbol(symbol: str) -> str:
     """'bbri.jk' / 'BBRI.JK' / 'BBRI' -> 'BBRI' (matches §8 trace /v2/daily/BBRI/)."""
     if not isinstance(symbol, str):
@@ -140,6 +151,14 @@ class SectorsClient:
         self.budget = budget if budget is not None else CreditBudget()
         self.cache_dir = Path(cache_dir)
         self.timeout = timeout
+        self.trace_log: list[str] = []  # §8 trace rows, appended by _fetch
+
+    def reset_trace(self) -> None:
+        self.trace_log = []
+
+    def _trace(self, namespace: str, endpoint: str, tag: str) -> None:
+        label = TRACE_LABELS.get(namespace, namespace)
+        self.trace_log.append(f"{label}:{endpoint} [{tag}]")
 
     # ---------------------------------------------------------------- cache
 
@@ -185,6 +204,7 @@ class SectorsClient:
         if self.mode in ("cache-first", "offline"):
             cached = self._read_cache(namespace, endpoint, params)
             if cached is not None:
+                self._trace(namespace, endpoint, "cache")
                 return cached
             if self.mode == "offline":
                 raise OfflineCacheMissError(
@@ -199,16 +219,20 @@ class SectorsClient:
             resp = requests.get(url, params=params, headers=headers, timeout=self.timeout)
         except requests.RequestException as exc:
             # charge() is never called on network failure — 0 cr.
+            self._trace(namespace, endpoint, "live, 0cr, conn-error")
             raise SectorsConnectionError(f"network failure on {endpoint}: {exc}") from exc
 
-        self.budget.charge(cost, resp.status_code, endpoint)  # every live call is billed/logged here
+        billed = self.budget.charge(cost, resp.status_code, endpoint)  # every live call billed/logged here
 
         if 200 <= resp.status_code < 300:
             data = resp.json()
             self._write_cache(namespace, endpoint, params, data)  # 2xx only — no negative caching
+            self._trace(namespace, endpoint, f"live, {billed}cr")
             return data
         if resp.status_code == 404:
+            self._trace(namespace, endpoint, f"live, {billed}cr, 404")
             raise SectorsNotFoundError(f"404 on {endpoint} (1 cr billed) — honest-null signal")
+        self._trace(namespace, endpoint, f"live, {billed}cr, http-{resp.status_code}")
         raise SectorsAPIError(
             f"HTTP {resp.status_code} on {endpoint} (0 cr billed)", resp.status_code
         )
