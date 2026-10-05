@@ -1,0 +1,17 @@
+# Secrets — never commit (§4)
+.env
+
+# Runtime data (§4)
+cache/
+state/*
+!state/.gitkeep
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+
+# macOS
+.DS_Store
