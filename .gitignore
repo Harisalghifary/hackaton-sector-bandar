@@ -1,6 +1,9 @@
 # Secrets — never commit (§4)
 .env
 
+# Internal build spec — not for the public repo
+bandar_spec.md
+
 # Runtime data (§4)
 cache/
 state/*
