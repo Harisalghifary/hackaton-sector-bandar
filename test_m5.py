@@ -239,3 +239,21 @@ def test_theme_defaults_dark_and_switches_via_env(env, monkeypatch):
     at3 = boot(env)
     css3 = "\n".join(str(getattr(el, "value", el)) for el in at3.markdown)
     assert "#0d1117" in css3
+
+
+EMOJI_BANNED = ["\U0001F3AF", "\U0001F4CA", "\U0001F527", "\u2705", "\u274C", "\U0001F504", "\u2B07", "\U0001F4C8", "\U0001F4AC", "\u26D4", "\u2796"]
+
+
+def test_ui_chrome_is_emoji_free(env):
+    """P1 regression: section icons are inline SVG, checks are ✓/✕ glyphs —
+    no OS-dependent emoji anywhere in the UI chrome (video + cross-platform)."""
+    at = boot(env)
+    at = find_button(at, "Force Live Refresh").click().run()
+    text = all_text(at)
+    labels = " ".join(str(b.label) for b in at.button)
+    for e in EMOJI_BANNED:
+        assert e not in text, f"emoji {e} leaked into UI text"
+        assert e not in labels, f"emoji {e} leaked into a button label"
+    assert "bd-dots" in text                                   # P2 score dots rendered
+    assert "bd-brand" in text and "bd-wordmark" in text        # P5 brand header
+    assert "✕" in text and ("bd-ok" in text or "bd-bad" in text)   # glyph factor checks

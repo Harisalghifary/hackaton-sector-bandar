@@ -65,7 +65,9 @@ PALETTES = {
 
 CSS_TEMPLATE = """
 <style>
-:root { color-scheme: @scheme@; }
+:root { color-scheme: @scheme@; --bd-bg: @bg@; --bd-panel: @panel@; --bd-text: @text@;
+  --bd-muted: @muted@; --bd-border: @border@; --bd-green: @green@; --bd-amber: @amber@;
+  --bd-red: @red@; --bd-accent: @accent@; }
 html, body, [data-testid="stAppViewContainer"], .stApp { background: @bg@ !important; }
 [data-testid="stAppViewContainer"] h1, [data-testid="stAppViewContainer"] h2,
 [data-testid="stAppViewContainer"] h3, [data-testid="stAppViewContainer"] h4,
@@ -151,6 +153,51 @@ html, body, [data-testid="stAppViewContainer"], .stApp { background: @bg@ !impor
   border-bottom: 1px solid @border@; }
 .bd-table td { padding: 9px 10px; border-bottom: 1px solid @border@; color: @text@; }
 .bd-table tbody tr:hover td { background: @rowhover@; }
+
+/* ---- brand header (P5) ---- */
+.bd-brand { display: flex; align-items: center; gap: 14px; margin: 4px 0 2px; }
+.bd-mark { width: 40px; height: 40px; flex: none; }
+.bd-wordmark { font-size: 1.9rem; font-weight: 800; letter-spacing: .14em;
+  color: @text@; font-family: @mono@; }
+.bd-brandtag { color: @muted@; font-size: .95rem;
+  border-left: 1px solid @border@; padding-left: 14px; }
+
+/* ---- section headings with inline SVG icons (P1) ---- */
+.bd-h { display: flex; align-items: center; gap: 10px; font-size: 1.15rem;
+  font-weight: 700; letter-spacing: .03em; margin: 18px 0 8px; color: @text@; }
+.bd-ic { width: 18px; height: 18px; color: @accent@; flex: none; }
+
+/* ---- factor check glyphs (P1) ---- */
+.bd-ok { color: @green@; font-weight: 700; }
+.bd-bad { color: @red@; font-weight: 700; }
+.bd-null { color: @muted@; }
+
+/* ---- score dots (P2) ---- */
+.bd-dots { display: inline-flex; gap: 3px; margin-left: 8px; vertical-align: middle; }
+.bd-dots i { width: 8px; height: 8px; border-radius: 50%; display: inline-block;
+  border: 1px solid @muted@; }
+.bd-dots.green i.on { background: @green@; border-color: @green@; }
+.bd-dots.amber i.on { background: @amber@; border-color: @amber@; }
+.bd-dots.red i.on { background: @red@; border-color: @red@; }
+
+/* ---- motion polish (P3) ---- */
+.bd-card, [data-testid="stButton"] button, [data-testid="stDownloadButton"] button,
+.bd-table td { transition: border-color .15s ease, background .15s ease,
+  transform .15s ease, color .15s ease; }
+.bd-card:hover { border-color: @accent@; transform: translateY(-1px); }
+[data-testid="stButton"] button:focus-visible,
+[data-testid="stDownloadButton"] button:focus-visible,
+[data-testid="stChatInputTextArea"]:focus-visible {
+  outline: 2px solid @accent@; outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) {
+  .bd-card, [data-testid="stButton"] button,
+  [data-testid="stDownloadButton"] button { transition: none; transform: none; }
+}
+
+/* hide Streamlit heading anchor links (video noise) */
+[data-testid="stAppViewContainer"] h1 a, [data-testid="stAppViewContainer"] h2 a,
+[data-testid="stAppViewContainer"] h3 a, [data-testid="stAppViewContainer"] h4 a {
+  display: none; }
 </style>
 """
 
@@ -160,6 +207,44 @@ def build_css(palette: dict) -> str:
     for key, val in palette.items():
         css = css.replace(f"@{key}@", val)
     return css
+
+
+# Inline SVG icon system (P1): crisp, platform-independent, theme-aware via
+# currentColor / CSS vars. No emoji anywhere in the UI chrome.
+IC_MARK = ('<svg class="bd-mark" viewBox="0 0 32 32" fill="none" aria-hidden="true">'
+           '<rect x="1" y="1" width="30" height="30" rx="8" '
+           'style="fill:var(--bd-panel, #161b22); stroke:var(--bd-border, #30363d)"/>'
+           '<path d="M8 22l5.5-7 4 3.2L24 9" style="stroke:var(--bd-accent, #58a6ff)" '
+           'stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>'
+           '<circle cx="24" cy="9" r="2.6" style="fill:var(--bd-green, #3fb950)"/></svg>')
+IC_TARGET = ('<svg class="bd-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" '
+             'stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="9"/>'
+             '<circle cx="12" cy="12" r="4.5"/><circle cx="12" cy="12" r="1.2" '
+             'fill="currentColor" stroke="none"/></svg>')
+IC_BARS = ('<svg class="bd-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" '
+           'stroke-width="2" stroke-linecap="round" aria-hidden="true">'
+           '<path d="M5 20V11"/><path d="M12 20V4"/><path d="M19 20v-6"/></svg>')
+IC_CHAT = ('<svg class="bd-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" '
+           'stroke-width="2" stroke-linejoin="round" aria-hidden="true">'
+           '<path d="M4 5h16v11H10l-6 4z"/></svg>')
+
+BRAND_HTML = ('<div class="bd-brand">' + IC_MARK +
+              '<span class="bd-wordmark">BANDAR</span>'
+              '<span class="bd-brandtag">pre-market desk note</span></div>')
+
+
+def h2(icon: str, text: str) -> str:
+    return f'<h2 class="bd-h">{icon}{text}</h2>'
+
+
+def dots_html(score, denom, kind: str) -> str:
+    """P2: ●●●○○ confluence at a glance (denom slots, `score` filled)."""
+    if score is None or denom is None:
+        return ""
+    filled = max(0, min(int(score), int(denom)))
+    cells = "".join('<i class="on"></i>' if i < filled else '<i></i>'
+                    for i in range(int(denom)))
+    return f'<span class="bd-dots {kind}" title="{score}/{denom} confluence">{cells}</span>'
 
 
 st.set_page_config(page_title="BANDAR", page_icon="📈", layout="wide")
@@ -194,7 +279,7 @@ for key, default in (("scores", []), ("deltas", []), ("agent_out", None),
 
 # ------------------------------------------------------------------ header + meter
 
-st.title("📈 BANDAR — pre-market desk note")
+st.markdown(BRAND_HTML, unsafe_allow_html=True)
 st.caption(f"IDX swing-trading analyst · as-of {AS_OF.isoformat()} (WIB) · "
            "analysis only — **no trade execution, ever** (FR9)")
 
@@ -274,12 +359,12 @@ if prompt:
 
 col_a, col_b, _ = st.columns([1, 1, 3])
 with col_a:
-    if st.button("🔄 Force Live Refresh", type="primary",
+    if st.button("Force Live Refresh", type="primary",
                  help="Fetch today's windows and re-score the watchlist"):
         do_refresh()
 with col_b:
     st.download_button(
-        "⬇️ Download Brief", data=st.session_state["brief_md"] or "_no brief yet_",
+        "Download Brief", data=st.session_state["brief_md"] or "_no brief yet_",
         file_name=f"bandar_brief_{AS_OF.isoformat()}.md", mime="text/markdown",
         disabled=not st.session_state["brief_md"],
     )
@@ -328,7 +413,8 @@ def pick_card(r: dict, badge: str | None = None) -> str:
     score, denom = r.get("score"), r.get("denominator")
 
     head = [f'<span class="bd-sym">{sym}</span>',
-            _pill(f"{score}/{denom}" if score is not None else "—", _score_kind(score)),
+            _pill(f"{score}/{denom}" if score is not None else "—", _score_kind(score))
+            + dots_html(score, denom, _score_kind(score)),
             _pill(label + (f" · {deploy}" if deploy else ""),
                   _decision_kind(label, bool(gate.get("triggered"))))]
     if badge:
@@ -338,7 +424,12 @@ def pick_card(r: dict, badge: str | None = None) -> str:
     checks = []
     for fk, flabel in FACTOR_LABELS.items():
         f = (r.get("factors") or {}).get(fk)
-        mark = "➖" if f is None else ("✅" if f.get("pass") else "❌")
+        if f is None:
+            mark = '<span class="bd-null">–</span>'
+        elif f.get("pass"):
+            mark = '<span class="bd-ok">✓</span>'
+        else:
+            mark = '<span class="bd-bad">✕</span>'
         checks.append(f"{mark} {flabel}")
 
     tp = r.get("trade_plan")
@@ -367,7 +458,7 @@ def pick_card(r: dict, badge: str | None = None) -> str:
 
 
 scores = st.session_state["scores"]
-st.subheader("🎯 TOP PICK")
+st.markdown(h2(IC_TARGET, "TOP PICK"), unsafe_allow_html=True)
 if scores:
     top = scores[0] if isinstance(scores[0], dict) and "score" in scores[0] else None
     if top:
@@ -395,8 +486,9 @@ def deltas_table(deltas: list[dict]) -> str:
         score_cell = (f'{d["score_old"]}/{d["denominator_old"]} → '
                       f'{d["score_new"]}/{d["denominator_new"]}'
                       if d["has_prev"] else f'new: {d["score_new"]}/{d["denominator_new"]}')
+        score_cell += dots_html(d["score_new"], d["denominator_new"], kind)
         dec_cell = (f'{d["decision_old"]} → ' if d["has_prev"] else "") + _pill(dec_new, kind)
-        gate_cell = _pill("⛔ no-chase", "amber") if gate else ""
+        gate_cell = _pill("⊘ no-chase", "amber") if gate else ""
         rows.append(f'<tr><td class="bd-mono">{d["ticker"]}</td>'
                     f'<td class="bd-mono">{score_cell}</td>'
                     f"<td>{dec_cell}</td><td>{gate_cell}</td>"
@@ -406,7 +498,7 @@ def deltas_table(deltas: list[dict]) -> str:
             f'<tbody>{"".join(rows)}</tbody></table>')
 
 
-st.subheader("📊 WATCHLIST DELTAS")
+st.markdown(h2(IC_BARS, "WATCHLIST DELTAS"), unsafe_allow_html=True)
 deltas = st.session_state["deltas"]
 if deltas:
     st.markdown(deltas_table(deltas), unsafe_allow_html=True)
@@ -418,7 +510,7 @@ else:
 
 agent_out = st.session_state["agent_out"]
 if agent_out is not None:
-    st.subheader("💬 Answer")
+    st.markdown(h2(IC_CHAT, "Answer"), unsafe_allow_html=True)
     if agent_out["type"] == "brief":
         b = agent_out["brief"]
 
@@ -444,7 +536,7 @@ if agent_out is not None:
 
 # ------------------------------------------------------------- workings (collapsed)
 
-with st.expander("🔧 Workings — plan · data pulls · factor math · credits", expanded=False):
+with st.expander("Workings — plan · data pulls · factor math · credits", expanded=False):
     if agent_out:
         st.markdown("**Agent plan** (LLM calls: "
                     f"{', '.join(agent_out.get('llm_calls', [])) or '—'})")
@@ -478,10 +570,10 @@ with st.expander("🔧 Workings — plan · data pulls · factor math · credits
             for fk, label in FACTOR_LABELS.items():
                 f = (r.get("factors") or {}).get(fk)
                 if f is None:
-                    st.markdown(f"- {label}: ➖ null (honest — not fabricated)")
+                    st.markdown(f"- {label}: – null (honest — not fabricated)")
                 else:
                     vals = ", ".join(f"{k}={v}" for k, v in (f.get("values") or {}).items())
-                    st.markdown(f"- {label}: {'✅' if f.get('pass') else '❌'} · {vals}"
+                    st.markdown(f"- {label}: {'✓' if f.get('pass') else '✕'} · {vals}"
                                 + (f" · flags: {f.get('flags')}" if f.get('flags') else ""))
             g = r.get("gates") or {}
             st.markdown(f"- Gates: no_chase={g.get('no_chase', {}).get('triggered')} · "
