@@ -168,6 +168,22 @@ Sectors credits are a scarce grant (1,000 cr), so Bandar treats every call as bi
 **Non-negotiables:** no trade execution ever · close-based stops only · every output number traces to a
 tool result · the product must break without Sectors.
 
+## Tech Stack
+
+| Layer | Tech |
+|---|---|
+| **Language** | Python 3.11+ |
+| **UI** | Streamlit (`st.write_stream`, `st.metric`, `st.status`, `st.session_state`) |
+| **Data source** | Sectors REST v2 (`https://api.sectors.app`) via plain `requests` |
+| **Storage** | SQLite (score history) + JSON (cache, watchlist, credit ledger) |
+| **Indicators** | pandas + pandas-ta (MACD, A/D, EMAs/SMAs, ATR, volume) |
+| **Agent** | Raw tool-calling loop — **no agent framework** |
+| **Runtime LLM** | Gemini Flash (primary) · Claude Sonnet (config-only hot-swap fallback) · max 3 calls/run |
+| **Delivery** | Telegram Bot API (`requests.post`) |
+| **Automation** | GitHub Actions (morning push runner) |
+| **Config / secrets** | python-dotenv (`.env`, gitignored) |
+| **Tests** | pytest (milestone-gated M1–M6) |
+
 ## Project Structure
 
 | Path | Role |
