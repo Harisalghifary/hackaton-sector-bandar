@@ -26,7 +26,10 @@ CLAUDE_VERSION = "2023-06-01"
 # as the LOCKED §3 block; this map is a transport-layer naming translation only,
 # so the config-only hot swap (D8) is unaffected.
 # - gemini-3.8-flash verified against ListModels on 2026-10-06 ("Gemini 3.8 Flash").
-# - claude-sonnet-4-5 UNVERIFIED (no Anthropic key yet) — check before first fallback use.
+# - claude-sonnet-4-5 STILL UNVERIFIED: an Anthropic key exists (2026-10-06) but the
+#   account has zero credit balance — HTTP 400 arrives before model resolution, so
+#   the id could not be confirmed. Re-verify once the account is funded. The D8
+#   degradation path itself was validated live: 400 -> LLMError -> honest fallback.
 MODEL_IDS = {
     "gemini-flash-3.8": "gemini-3.8-flash",
     "claude-sonnet-4.5": "claude-sonnet-4-5",

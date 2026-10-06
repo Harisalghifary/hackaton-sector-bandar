@@ -1,0 +1,44 @@
+# M6 — BANDAR morning Telegram push (§9).
+#
+# Spec: "Telegram 08:30 WIB: top pick + entry/stop/size + why · watchlist status
+# lines · 'N others actionable' · credits used. GitHub Actions cron; validate a
+# few times, don't run daily."
+#
+# The schedule is intentionally COMMENTED OUT (LOCKED-spec credit discipline):
+# this runner has no cache/ or state/ (both gitignored), so every cold run
+# fetches all windows live — up to ~48 Sectors credits per push, within the
+# 60/run hard cap but far too expensive to burn daily on a 1,000-cr grant.
+# Validate with manual dispatches (button in the Actions tab); enable the cron
+# only if/when a daily ~48 cr spend is explicitly accepted.
+#
+# Required repo secrets: SECTORS_API_KEY, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID.
+
+name: bandar-morning-push
+
+on:
+  workflow_dispatch: {}
+  # 08:30 WIB (UTC+7) = 01:30 UTC, Mon–Fri:
+  # schedule:
+  #   - cron: "30 1 * * 1-5"
+
+jobs:
+  push:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Score watchlist and send Telegram push
+        env:
+          SECTORS_API_KEY: ${{ secrets.SECTORS_API_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python telegram_push.py
