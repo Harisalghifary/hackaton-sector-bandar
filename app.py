@@ -11,9 +11,11 @@ Rules honored:
 - DO NOT BUILD list: no auth, no multi-user, no charts, no settings page, no
   risk-profile switcher, no backtesting, NO execution path (FR9).
 - Env anchors: BANDAR_AS_OF (replay a seeded day deterministically), BANDAR_STATE_DIR
-  (isolate ledger/DB — used by tests).
+  (isolate ledger/DB — used by tests), BANDAR_THEME=dark|light (default dark —
+  a UI preference only, NOT a settings page; set once per run/recording).
 
-Run: streamlit run app.py
+Run: streamlit run app.py            (dark terminal look)
+     BANDAR_THEME=light streamlit run app.py
 """
 
 from __future__ import annotations
@@ -24,7 +26,6 @@ from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-import pandas as pd
 import streamlit as st
 from dotenv import load_dotenv
 
@@ -41,7 +42,128 @@ STATE_DIR = Path(os.environ.get("BANDAR_STATE_DIR", "state"))
 FACTOR_LABELS = {"f1_macd": "F1 MACD", "f2_volume": "F2 Vol", "f3_ad": "F3 A/D",
                  "f4_ma_stack": "F4 MAs", "f5_broker": "F5 Broker"}
 
+# --------------------------------------------------------------------- theming
+
+THEME = os.environ.get("BANDAR_THEME", "dark").strip().lower()
+if THEME not in ("dark", "light"):
+    THEME = "dark"
+
+PALETTES = {
+    "dark": dict(scheme="dark", bg="#0d1117", panel="#161b22", text="#e6edf3",
+                 muted="#8b949e", border="#30363d", green="#3fb950", amber="#d29922",
+                 red="#f85149", accent="#58a6ff", on_accent="#0d1117",
+                 rowhover="rgba(240,246,252,0.05)", green_bg="rgba(63,185,80,0.14)",
+                 amber_bg="rgba(210,153,34,0.14)", red_bg="rgba(248,81,73,0.14)",
+                 mono='"SF Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace'),
+    "light": dict(scheme="light", bg="#ffffff", panel="#f6f8fa", text="#1f2328",
+                  muted="#57606a", border="#d0d7de", green="#1a7f37", amber="#9a6700",
+                  red="#cf222e", accent="#0969da", on_accent="#ffffff",
+                  rowhover="rgba(31,35,40,0.04)", green_bg="rgba(26,127,55,0.10)",
+                  amber_bg="rgba(154,103,0,0.10)", red_bg="rgba(207,34,46,0.10)",
+                  mono='"SF Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace'),
+}
+
+CSS_TEMPLATE = """
+<style>
+:root { color-scheme: @scheme@; }
+html, body, [data-testid="stAppViewContainer"], .stApp { background: @bg@ !important; }
+[data-testid="stAppViewContainer"] h1, [data-testid="stAppViewContainer"] h2,
+[data-testid="stAppViewContainer"] h3, [data-testid="stAppViewContainer"] h4,
+[data-testid="stAppViewContainer"] p, [data-testid="stAppViewContainer"] li,
+[data-testid="stAppViewContainer"] label { color: @text@; }
+[data-testid="stCaptionContainer"], [data-testid="stCaptionContainer"] p {
+  color: @muted@ !important; }
+
+/* compact credit-meter chips */
+[data-testid="stMetric"] { background: @panel@; border: 1px solid @border@;
+  border-radius: 12px; padding: 6px 14px; }
+[data-testid="stMetricValue"] { color: @text@ !important; font-family: @mono@;
+  font-size: 1.3rem !important; }
+[data-testid="stMetricLabel"], [data-testid="stMetricLabel"] p {
+  color: @muted@ !important; font-size: .7rem !important;
+  text-transform: uppercase; letter-spacing: .06em; }
+
+/* buttons */
+[data-testid="stButton"] button, [data-testid="stDownloadButton"] button {
+  background: @panel@; color: @text@; border: 1px solid @border@;
+  border-radius: 10px; font-weight: 600; }
+[data-testid="stButton"] button:hover, [data-testid="stDownloadButton"] button:hover {
+  border-color: @accent@; color: @accent@; }
+[data-testid="stBaseButton-primary"] { background: @accent@ !important;
+  border-color: @accent@ !important; color: @on_accent@ !important; }
+
+/* workings expander + status + code */
+[data-testid="stExpander"] { background: @panel@; border: 1px solid @border@;
+  border-radius: 12px; }
+[data-testid="stExpander"] summary, [data-testid="stExpander"] summary p {
+  color: @text@ !important; }
+[data-testid="stExpander"] code, [data-testid="stStatusWidget"] code {
+  background: @bg@; color: @accent@; }
+[data-testid="stStatusWidget"] { background: @bg@; border: 1px solid @border@;
+  border-radius: 10px; }
+[data-testid="stAlert"] { border-radius: 12px; }
+
+/* chat input + fixed chrome (header bar / bottom dock) */
+[data-testid="stHeader"] { background: @bg@ !important; }
+[data-testid="stBottom"], [data-testid="stBottomContainer"],
+[data-testid="stBottomBlockContainer"],
+[data-testid="stBottom"] > div { background: @bg@ !important; }
+[data-testid="stDeployButton"] button, [data-testid="stDeployButton"] p,
+[data-testid="stMainMenu"] button { color: @muted@ !important; }
+[data-testid="stMainMenu"] svg { fill: @muted@; }
+[data-testid="stChatInput"] { background: transparent; }
+[data-testid="stChatInput"] > div { background: transparent !important; }
+[data-testid="stChatInputTextArea"] { background: @panel@ !important;
+  color: @text@ !important; border: 1px solid @border@ !important;
+  border-radius: 12px; }
+[data-testid="stChatInputTextArea"]::placeholder { color: @muted@; }
+[data-testid="stChatInput"] button { background: @panel@ !important;
+  color: @text@ !important; border: 1px solid @border@ !important; }
+
+/* ---- bandar components ---- */
+.bd-card { background: @panel@; border: 1px solid @border@; border-radius: 16px;
+  padding: 18px 22px; margin: 6px 0 10px; }
+.bd-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.bd-sym { font-size: 2rem; font-weight: 800; letter-spacing: .04em;
+  color: @text@; font-family: @mono@; }
+.bd-mono, .bd-kv b { font-family: @mono@; }
+.bd-pill { display: inline-block; padding: 3px 12px; border-radius: 999px;
+  font-weight: 700; font-size: .8rem; font-family: @mono@; }
+.bd-pill.green { background: @green_bg@; color: @green@; border: 1px solid @green@; }
+.bd-pill.amber { background: @amber_bg@; color: @amber@; border: 1px solid @amber@; }
+.bd-pill.red   { background: @red_bg@;   color: @red@;   border: 1px solid @red@; }
+.bd-badge { color: @muted@; font-size: .75rem; border: 1px dashed @border@;
+  border-radius: 999px; padding: 2px 10px; }
+.bd-checks { margin: 10px 0 4px; color: @muted@; font-size: .85rem; }
+.bd-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px; margin: 12px 0 4px; }
+.bd-kv { background: @bg@; border: 1px solid @border@; border-radius: 10px;
+  padding: 8px 12px; }
+.bd-kv span { display: block; color: @muted@; font-size: .68rem;
+  text-transform: uppercase; letter-spacing: .06em; }
+.bd-kv b { color: @text@; font-size: 1.05rem; }
+.bd-noentry { margin: 12px 0 4px; color: @muted@; font-style: italic; }
+.bd-why { margin-top: 10px; color: @text@; font-size: .9rem; }
+.bd-why b { color: @accent@; }
+.bd-table { width: 100%; border-collapse: collapse; font-size: .88rem; margin-top: 4px; }
+.bd-table th { text-align: left; color: @muted@; font-size: .68rem;
+  text-transform: uppercase; letter-spacing: .08em; padding: 6px 10px;
+  border-bottom: 1px solid @border@; }
+.bd-table td { padding: 9px 10px; border-bottom: 1px solid @border@; color: @text@; }
+.bd-table tbody tr:hover td { background: @rowhover@; }
+</style>
+"""
+
+
+def build_css(palette: dict) -> str:
+    css = CSS_TEMPLATE
+    for key, val in palette.items():
+        css = css.replace(f"@{key}@", val)
+    return css
+
+
 st.set_page_config(page_title="BANDAR", page_icon="📈", layout="wide")
+st.markdown(build_css(PALETTES[THEME]), unsafe_allow_html=True)
 
 
 # --------------------------------------------------------------------- resources
@@ -152,7 +274,8 @@ if prompt:
 
 col_a, col_b, _ = st.columns([1, 1, 3])
 with col_a:
-    if st.button("🔄 Force Live Refresh", help="Fetch today's windows and re-score the watchlist"):
+    if st.button("🔄 Force Live Refresh", type="primary",
+                 help="Fetch today's windows and re-score the watchlist"):
         do_refresh()
 with col_b:
     st.download_button(
@@ -174,44 +297,88 @@ def restore_from_memory() -> list[dict]:
     return rows
 
 
+def _fmt_price(p) -> str:
+    return f"{p:g}"
+
+
+def _pill(text: str, kind: str) -> str:
+    return f'<span class="bd-pill {kind}">{text}</span>'
+
+
+def _decision_kind(label: str, gate_triggered: bool) -> str:
+    if gate_triggered:
+        return "amber"
+    return "red" if label == "WAIT" else "green"
+
+
+def _score_kind(score) -> str:
+    if score is None:
+        return "red"
+    return "green" if score >= 3 else ("amber" if score == 2 else "red")
+
+
+def pick_card(r: dict, badge: str | None = None) -> str:
+    """The §9 TOP PICK card as themed HTML: score badge · decision pill ·
+    five factor checks · entry/stop/lots grid · one-line why."""
+    sym = r.get("symbol") or r.get("ticker")
+    d = r.get("decision") or {}
+    label = d["label"] if isinstance(d, dict) else str(d)
+    deploy = d.get("deploy_pct") if isinstance(d, dict) else None
+    gate = (r.get("gates") or {}).get("no_chase", {}) or {}
+    score, denom = r.get("score"), r.get("denominator")
+
+    head = [f'<span class="bd-sym">{sym}</span>',
+            _pill(f"{score}/{denom}" if score is not None else "—", _score_kind(score)),
+            _pill(label + (f" · {deploy}" if deploy else ""),
+                  _decision_kind(label, bool(gate.get("triggered"))))]
+    if badge:
+        head.append(f'<span class="bd-badge">{badge}</span>')
+    head.append(f'<span class="bd-badge">as of {r.get("as_of")}</span>')
+
+    checks = []
+    for fk, flabel in FACTOR_LABELS.items():
+        f = (r.get("factors") or {}).get(fk)
+        mark = "➖" if f is None else ("✅" if f.get("pass") else "❌")
+        checks.append(f"{mark} {flabel}")
+
+    tp = r.get("trade_plan")
+    if tp:
+        ez = tp["entry_zone"]
+        body = ('<div class="bd-grid">'
+                f'<div class="bd-kv"><span>Entry zone</span><b>{_fmt_price(ez[0])}–{_fmt_price(ez[1])}</b></div>'
+                f'<div class="bd-kv"><span>Stop (close)</span><b>{_fmt_price(tp["stop_close"])}</b></div>'
+                f'<div class="bd-kv"><span>Lots · 0.5% risk</span><b>{tp["lots"]}</b></div>'
+                "</div>")
+    else:
+        body = ('<div class="bd-noentry">No disciplined entry today — wait for a '
+                "better setup (close-based rules only, FR4).</div>")
+
+    why = ("no-chase gate triggered — WAIT for pullback (never chase, D3)"
+           if gate.get("triggered") else
+           f"{score}/{denom} confluence · regime {(r.get('gates') or {}).get('regime', 'n/a')}"
+           + (f" · flags: {', '.join(r.get('risk_flags') or [])}" if r.get("risk_flags") else ""))
+
+    return ('<div class="bd-card">'
+            f'<div class="bd-row">{"".join(head)}</div>'
+            f'<div class="bd-checks">{" · ".join(checks)}</div>'
+            f"{body}"
+            f'<div class="bd-why"><b>Why:</b> {why}</div>'
+            "</div>")
+
+
 scores = st.session_state["scores"]
 st.subheader("🎯 TOP PICK")
 if scores:
     top = scores[0] if isinstance(scores[0], dict) and "score" in scores[0] else None
     if top:
-        card = st.container(border=True)
-        with card:
-            c1, c2, c3, c4 = st.columns([1.2, 2.2, 1.4, 2.2])
-            c1.metric(f"{top['symbol']}", f"{top['score']}/{top['denominator']}")
-            checks = []
-            for fk, label in FACTOR_LABELS.items():
-                f = (top.get("factors") or {}).get(fk)
-                mark = "➖" if f is None else ("✅" if f.get("pass") else "❌")
-                checks.append(f"{mark} {label}")
-            c2.markdown(" · ".join(checks))
-            d = top["decision"]
-            c3.metric("Decision", d["label"], d["deploy_pct"])
-            tp = top.get("trade_plan")
-            if tp:
-                ez = tp["entry_zone"]
-                c4.markdown(f"**Entry** {ez[0]}–{ez[1]} · **Stop (close)** {tp['stop_close']} · "
-                            f"**Lots** {tp['lots']} · tick_valid {'✅' if tp['tick_valid'] else '❌'}")
-            else:
-                c4.markdown("**No entry** — wait for a better setup.")
-            gate = (top.get("gates") or {}).get("no_chase", {})
-            why = (f"no-chase gate triggered — WAIT for pullback" if gate.get("triggered")
-                   else f"{top['score']}/{top['denominator']} confluence · regime "
-                        f"{(top.get('gates') or {}).get('regime', 'n/a')}"
-                        + (f" · flags: {', '.join(top['risk_flags'])}" if top.get("risk_flags") else ""))
-            st.caption(f"**Why:** {why} · as of {top['as_of']}")
+        st.markdown(pick_card(top), unsafe_allow_html=True)
 else:
     prior = restore_from_memory()
     if prior:
-        st.info("Showing last recorded run from memory (0 cr). Press **Force Live Refresh** "
-                "for today's data.")
         best = max(prior, key=lambda r: (r.get("score") or 0))
-        st.markdown(f"**{best['ticker']}** — {best['score']}/{best['denominator']} · "
-                    f"{best['decision']} · as of {best['as_of']}")
+        st.markdown(pick_card(best, badge="last recorded run from memory (0 cr)"),
+                    unsafe_allow_html=True)
+        st.caption("Press **Force Live Refresh** for today's data.")
     else:
         st.info("No scores yet — press **Force Live Refresh** to score the watchlist, "
                 "or ask a question below.")
@@ -219,19 +386,30 @@ else:
 
 # ------------------------------------------------------------- WATCHLIST DELTAS
 
+def deltas_table(deltas: list[dict]) -> str:
+    rows = []
+    for d in deltas:
+        dec_new = d["decision_new"] or "—"
+        gate = d.get("gate_override")
+        kind = "amber" if gate else ("red" if dec_new == "WAIT" else "green")
+        score_cell = (f'{d["score_old"]}/{d["denominator_old"]} → '
+                      f'{d["score_new"]}/{d["denominator_new"]}'
+                      if d["has_prev"] else f'new: {d["score_new"]}/{d["denominator_new"]}')
+        dec_cell = (f'{d["decision_old"]} → ' if d["has_prev"] else "") + _pill(dec_new, kind)
+        gate_cell = _pill("⛔ no-chase", "amber") if gate else ""
+        rows.append(f'<tr><td class="bd-mono">{d["ticker"]}</td>'
+                    f'<td class="bd-mono">{score_cell}</td>'
+                    f"<td>{dec_cell}</td><td>{gate_cell}</td>"
+                    f'<td class="bd-mono">{d.get("prev_date") or "—"}</td></tr>')
+    return ('<table class="bd-table"><thead><tr><th>Ticker</th><th>Score</th>'
+            "<th>Decision</th><th>Gate override</th><th>Prior date</th></tr></thead>"
+            f'<tbody>{"".join(rows)}</tbody></table>')
+
+
 st.subheader("📊 WATCHLIST DELTAS")
 deltas = st.session_state["deltas"]
 if deltas:
-    rows = [{
-        "Ticker": d["ticker"],
-        "Score": (f"{d['score_old']}/{d['denominator_old']} → {d['score_new']}/{d['denominator_new']}"
-                  if d["has_prev"] else f"new: {d['score_new']}/{d['denominator_new']}"),
-        "Decision": (f"{d['decision_old']} → {d['decision_new']}"
-                     if d["has_prev"] else d["decision_new"]),
-        "Gate override": d.get("gate_override") or "",
-        "Prior date": d.get("prev_date") or "—",
-    } for d in deltas]
-    st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
+    st.markdown(deltas_table(deltas), unsafe_allow_html=True)
 else:
     st.caption("Deltas appear after a refresh or an ask that scores tickers (old→new + prior date).")
 
@@ -304,7 +482,7 @@ with st.expander("🔧 Workings — plan · data pulls · factor math · credits
                 else:
                     vals = ", ".join(f"{k}={v}" for k, v in (f.get("values") or {}).items())
                     st.markdown(f"- {label}: {'✅' if f.get('pass') else '❌'} · {vals}"
-                                + (f" · flags: {f.get('flags')}" if f.get("flags") else ""))
+                                + (f" · flags: {f.get('flags')}" if f.get('flags') else ""))
             g = r.get("gates") or {}
             st.markdown(f"- Gates: no_chase={g.get('no_chase', {}).get('triggered')} · "
                         f"ara={g.get('ara', {}).get('triggered')} · regime={g.get('regime')}")

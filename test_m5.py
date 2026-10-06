@@ -144,7 +144,7 @@ def test_force_refresh_scores_watchlist_from_cache(env):
     text = all_text(at)
     assert "TOP PICK" in text and ("BBRI" in text or "BMRI" in text)
     assert "WATCHLIST DELTAS" in text
-    assert len(at.dataframe) == 1                          # deltas table rendered
+    assert '<table class="bd-table"' in text             # themed deltas table rendered
 
 
 def test_refresh_is_idempotent_and_reruns_keep_session(env):
@@ -223,3 +223,19 @@ def test_boot_restores_last_run_from_memory(env):
     text = all_text(at2)
     assert "last recorded run from memory" in text             # 0-cr restore notice
     assert "BBRI" in text or "BMRI" in text
+
+
+def test_theme_defaults_dark_and_switches_via_env(env, monkeypatch):
+    at = boot(env)                                             # BANDAR_THEME unset -> dark
+    css = "\n".join(str(getattr(el, "value", el)) for el in at.markdown)
+    assert "#0d1117" in css and "bd-card" in css
+
+    monkeypatch.setenv("BANDAR_THEME", "light")
+    at2 = boot(env)
+    css2 = "\n".join(str(getattr(el, "value", el)) for el in at2.markdown)
+    assert "#ffffff" in css2 and "#0d1117" not in css2
+
+    monkeypatch.setenv("BANDAR_THEME", "nonsense")             # invalid -> falls back dark
+    at3 = boot(env)
+    css3 = "\n".join(str(getattr(el, "value", el)) for el in at3.markdown)
+    assert "#0d1117" in css3
