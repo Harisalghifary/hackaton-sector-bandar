@@ -198,6 +198,19 @@ html, body, [data-testid="stAppViewContainer"], .stApp { background: @bg@ !impor
 [data-testid="stAppViewContainer"] h1 a, [data-testid="stAppViewContainer"] h2 a,
 [data-testid="stAppViewContainer"] h3 a, [data-testid="stAppViewContainer"] h4 a {
   display: none; }
+
+/* ---- P4: desk-context side panel + last-scored chip ---- */
+.bd-side { background: @panel@; border: 1px solid @border@; border-radius: 16px;
+  padding: 16px 18px; height: 100%; }
+.bd-side-h { font-size: .72rem; text-transform: uppercase; letter-spacing: .08em;
+  color: @muted@; margin-bottom: 10px; }
+.bd-kvrow { display: flex; justify-content: space-between; gap: 12px;
+  padding: 7px 0; border-bottom: 1px dashed @border@; font-size: .85rem; }
+.bd-kvrow:last-child { border-bottom: none; }
+.bd-kvrow span { color: @muted@; }
+.bd-kvrow b { color: @text@; font-family: @mono@; font-weight: 600; }
+.bd-chip-right { display: flex; justify-content: flex-end; color: @muted@;
+  font-size: .75rem; font-family: @mono@; padding-top: 8px; }
 </style>
 """
 
@@ -247,6 +260,29 @@ def dots_html(score, denom, kind: str) -> str:
     return f'<span class="bd-dots {kind}" title="{score}/{denom} confluence">{cells}</span>'
 
 
+# P6: semantic meter colors. The three header st.metric chips (LOCKED widget) are
+# targeted positionally; the workings meter sits inside <details> so it is excluded.
+# Browsers without :has() ignore the rules -> meters stay neutral (graceful).
+METER_SEL = ('[data-testid="stMainBlockContainer"] '
+             '[data-testid="stHorizontalBlock"]:not(details *)'
+             ':has(> div [data-testid="stMetric"])')
+
+
+def meter_style(stt: dict, palette: dict) -> str:
+    def col(val, amber_at, red_at, invert=False):
+        hit = (val <= red_at) if invert else (val >= red_at)
+        warn = (val <= amber_at) if invert else (val >= amber_at)
+        return palette["red"] if hit else (palette["amber"] if warn else palette["green"])
+    c1 = col(stt["remaining_total"], 200, 60, invert=True)   # spendable left
+    c2 = col(stt["daily_spent"], 150, 200)                   # today vs 200 soft warn
+    c3 = col(stt["run_spent"], 40, 60)                       # run vs 60 hard cap
+    rules = "".join(
+        f'{METER_SEL} > div:nth-child({i}) [data-testid="stMetricValue"] '
+        f'{{ color: {c} !important; }}'
+        for i, c in ((1, c1), (2, c2), (3, c3)))
+    return f"<style>{rules}</style>"
+
+
 st.set_page_config(page_title="BANDAR", page_icon="📈", layout="wide")
 st.markdown(build_css(PALETTES[THEME]), unsafe_allow_html=True)
 
@@ -288,6 +324,7 @@ stt = budget.status()
 m1.metric("Sectors credits left", stt["remaining_total"], help="of 800 spendable (200 reserve locked)")
 m2.metric("Today (WIB)", f"{stt['daily_spent']} / 200", help="soft warn at 200/day")
 m3.metric("This run", f"{stt['run_spent']} / 60", help="hard cap 60/run")
+st.markdown(meter_style(stt, PALETTES[THEME]), unsafe_allow_html=True)
 
 if st.session_state["last_error"]:
     st.error(st.session_state["last_error"])
@@ -357,7 +394,7 @@ prompt = st.chat_input("Ask Bandar… (e.g. 'who's accumulating BMRI?', 'top pic
 if prompt:
     do_ask(prompt)
 
-col_a, col_b, _ = st.columns([1, 1, 3])
+col_a, col_b, col_c = st.columns([1, 1, 2.4])
 with col_a:
     if st.button("Force Live Refresh", type="primary",
                  help="Fetch today's windows and re-score the watchlist"):
@@ -368,6 +405,14 @@ with col_b:
         file_name=f"bandar_brief_{AS_OF.isoformat()}.md", mime="text/markdown",
         disabled=not st.session_state["brief_md"],
     )
+with col_c:                                                  # P4: fill dead space
+    # computed HERE (after the refresh handler) so the chip updates same-rerun
+    _last_rows = [memory.latest(s) for s in memory.load_watchlist()]
+    _last_ts = max((r["created_at"] for r in _last_rows if r), default=None)
+    st.markdown('<div class="bd-chip-right">'
+                + (f"last scored: {_last_ts[:16].replace('T', ' ')} WIB" if _last_ts
+                   else "not scored yet")
+                + "</div>", unsafe_allow_html=True)
 
 
 # ------------------------------------------------------------------ TOP PICK card
@@ -459,13 +504,40 @@ def pick_card(r: dict, badge: str | None = None) -> str:
 
 scores = st.session_state["scores"]
 st.markdown(h2(IC_TARGET, "TOP PICK"), unsafe_allow_html=True)
-if scores:
-    top = scores[0] if isinstance(scores[0], dict) and "score" in scores[0] else None
-    if top:
-        st.markdown(pick_card(top), unsafe_allow_html=True)
-else:
-    prior = restore_from_memory()
-    if prior:
+
+
+def _is_actionable(r: dict) -> bool:
+    d = r.get("decision") or {}
+    label = d.get("label") if isinstance(d, dict) else str(d)
+    return bool(r.get("trade_plan")) and label != "WAIT"
+
+
+def context_panel(rows: list[dict], as_of) -> str:
+    """P4: desk-context side panel — all values engine/memory-derived, 0 calls."""
+    data_date = max((r.get("as_of") or "" for r in rows), default="—")
+    watch_n = len(memory.load_watchlist())
+    act = sum(1 for r in rows if _is_actionable(r))
+    top = rows[0] if rows else None
+    regime = ((top.get("gates") or {}).get("regime", "—") if top else "—")
+    kv = [("Anchor (WIB)", as_of.isoformat()), ("Data as of", data_date),
+          ("Scored", f"{len(rows)}/{watch_n}"), ("Actionable", str(act)),
+          ("Top regime", regime)]
+    body = "".join(f'<div class="bd-kvrow"><span>{k}</span><b>{v}</b></div>'
+                   for k, v in kv)
+    return f'<div class="bd-side"><div class="bd-side-h">Desk context</div>{body}</div>'
+
+
+prior = [] if scores else restore_from_memory()
+shown = scores or prior
+hero_l, hero_r = st.columns([2, 1], gap="medium")
+with hero_r:
+    st.markdown(context_panel(shown, AS_OF), unsafe_allow_html=True)
+with hero_l:
+    if scores:
+        top = scores[0] if isinstance(scores[0], dict) and "score" in scores[0] else None
+        if top:
+            st.markdown(pick_card(top), unsafe_allow_html=True)
+    elif prior:
         best = max(prior, key=lambda r: (r.get("score") or 0))
         st.markdown(pick_card(best, badge="last recorded run from memory (0 cr)"),
                     unsafe_allow_html=True)
@@ -493,8 +565,10 @@ def deltas_table(deltas: list[dict]) -> str:
                     f'<td class="bd-mono">{score_cell}</td>'
                     f"<td>{dec_cell}</td><td>{gate_cell}</td>"
                     f'<td class="bd-mono">{d.get("prev_date") or "—"}</td></tr>')
-    return ('<table class="bd-table"><thead><tr><th>Ticker</th><th>Score</th>'
-            "<th>Decision</th><th>Gate override</th><th>Prior date</th></tr></thead>"
+    return ('<table class="bd-table"><thead><tr>'
+            '<th style="width:10%">Ticker</th><th style="width:26%">Score</th>'
+            '<th style="width:22%">Decision</th><th style="width:22%">Gate override</th>'
+            '<th style="width:20%">Prior date</th></tr></thead>'
             f'<tbody>{"".join(rows)}</tbody></table>')
 
 

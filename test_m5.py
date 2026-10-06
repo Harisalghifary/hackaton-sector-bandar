@@ -257,3 +257,17 @@ def test_ui_chrome_is_emoji_free(env):
     assert "bd-dots" in text                                   # P2 score dots rendered
     assert "bd-brand" in text and "bd-wordmark" in text        # P5 brand header
     assert "✕" in text and ("bd-ok" in text or "bd-bad" in text)   # glyph factor checks
+
+
+def test_p4_context_panel_chip_and_p6_meter_style(env):
+    at = boot(env)
+    css = "\n".join(str(getattr(el, "value", el)) for el in at.markdown)
+    assert "stMetricValue" in css and "stHorizontalBlock" in css   # P6 dynamic style
+    assert "not scored yet" in css                                  # P4 chip, empty state
+
+    at = find_button(at, "Force Live Refresh").click().run()
+    text = all_text(at)
+    assert "Desk context" in text and "Actionable" in text         # P4 side panel
+    assert "Scored" in text and "2/2" in text
+    assert "last scored:" in text                                  # chip now has a time
+    assert '<th style="width:10%">Ticker</th>' in text             # P4 compact columns
