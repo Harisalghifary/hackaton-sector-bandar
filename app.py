@@ -49,18 +49,23 @@ if THEME not in ("dark", "light"):
     THEME = "dark"
 
 PALETTES = {
-    "dark": dict(scheme="dark", bg="#0d1117", panel="#161b22", text="#e6edf3",
-                 muted="#8b949e", border="#30363d", green="#3fb950", amber="#d29922",
-                 red="#f85149", accent="#58a6ff", on_accent="#0d1117",
-                 rowhover="rgba(240,246,252,0.05)", green_bg="rgba(63,185,80,0.14)",
-                 amber_bg="rgba(210,153,34,0.14)", red_bg="rgba(248,81,73,0.14)",
-                 mono='"SF Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace'),
-    "light": dict(scheme="light", bg="#ffffff", panel="#f6f8fa", text="#1f2328",
-                  muted="#57606a", border="#d0d7de", green="#1a7f37", amber="#9a6700",
+    # "Bloomberg terminal meets Telegram" night scheme (pass-4 audit adoption):
+    # bg #0f0f1a · card #1a1a2e · highlight #16213e · card border #0f3460
+    # status: success #4ade80 · warning #fbbf24 · danger #f87171 · info #3b82f6
+    "dark": dict(scheme="dark", bg="#0f0f1a", panel="#1a1a2e", highlight="#16213e",
+                 cardborder="#0f3460", text="#ffffff", muted="#888888",
+                 border="#2b2b45", green="#4ade80", amber="#fbbf24",
+                 red="#f87171", accent="#3b82f6", on_accent="#ffffff",
+                 rowhover="rgba(255,255,255,0.05)", green_bg="rgba(74,222,128,0.14)",
+                 amber_bg="rgba(251,191,36,0.14)", red_bg="rgba(248,113,113,0.14)",
+                 mono='"SF Mono", "Monaco", "Inconsolata", ui-monospace, Menlo, monospace'),
+    "light": dict(scheme="light", bg="#ffffff", panel="#f6f8fa", highlight="#eaeef2",
+                  cardborder="#b6c2cf", text="#1f2328", muted="#57606a",
+                  border="#d0d7de", green="#1a7f37", amber="#9a6700",
                   red="#cf222e", accent="#0969da", on_accent="#ffffff",
                   rowhover="rgba(31,35,40,0.04)", green_bg="rgba(26,127,55,0.10)",
                   amber_bg="rgba(154,103,0,0.10)", red_bg="rgba(207,34,46,0.10)",
-                  mono='"SF Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace'),
+                  mono='"SF Mono", "Monaco", "Inconsolata", ui-monospace, Menlo, monospace'),
 }
 
 CSS_TEMPLATE = """
@@ -80,7 +85,7 @@ html, body, [data-testid="stAppViewContainer"], .stApp { background: @bg@ !impor
 [data-testid="stMetric"] { background: @panel@; border: 1px solid @border@;
   border-radius: 12px; padding: 6px 14px; }
 [data-testid="stMetricValue"] { color: @text@ !important; font-family: @mono@;
-  font-size: 1.3rem !important; }
+  font-variant-numeric: tabular-nums; font-size: 1.3rem !important; }
 [data-testid="stMetricLabel"], [data-testid="stMetricLabel"] p {
   color: @muted@ !important; font-size: .7rem !important;
   text-transform: uppercase; letter-spacing: .06em; }
@@ -123,17 +128,25 @@ html, body, [data-testid="stAppViewContainer"], .stApp { background: @bg@ !impor
   color: @text@ !important; border: 1px solid @border@ !important; }
 
 /* ---- bandar components ---- */
-.bd-card { background: @panel@; border: 1px solid @border@; border-radius: 16px;
+.bd-card { background: linear-gradient(135deg, @panel@ 0%, @highlight@ 100%);
+  border: 1px solid @cardborder@; border-radius: 16px;
   padding: 18px 22px; margin: 6px 0 10px; }
 .bd-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .bd-sym { font-size: 2rem; font-weight: 800; letter-spacing: .04em;
   color: @text@; font-family: @mono@; }
-.bd-mono, .bd-kv b { font-family: @mono@; }
+.bd-mono, .bd-kv b { font-family: @mono@; font-variant-numeric: tabular-nums; }
 .bd-pill { display: inline-block; padding: 3px 12px; border-radius: 999px;
   font-weight: 700; font-size: .8rem; font-family: @mono@; }
 .bd-pill.green { background: @green_bg@; color: @green@; border: 1px solid @green@; }
 .bd-pill.amber { background: @amber_bg@; color: @amber@; border: 1px solid @amber@; }
 .bd-pill.red   { background: @red_bg@;   color: @red@;   border: 1px solid @red@; }
+.bd-pill.blue  { background: rgba(59,130,246,0.14); color: @accent@;
+  border: 1px solid @accent@; }
+.bd-action { margin: 10px 0 2px; font-weight: 700; font-size: .95rem;
+  font-family: @mono@; }
+.bd-action.green { color: @green@; }
+.bd-action.amber { color: @amber@; }
+.bd-action.red { color: @red@; }
 .bd-badge { color: @muted@; font-size: .75rem; border: 1px dashed @border@;
   border-radius: 999px; padding: 2px 10px; }
 .bd-checks { margin: 10px 0 4px; color: @muted@; font-size: .85rem; }
@@ -144,14 +157,24 @@ html, body, [data-testid="stAppViewContainer"], .stApp { background: @bg@ !impor
 .bd-kv span { display: block; color: @muted@; font-size: .68rem;
   text-transform: uppercase; letter-spacing: .06em; }
 .bd-kv b { color: @text@; font-size: 1.05rem; }
+.bd-kv.stop b { color: @red@; }
 .bd-noentry { margin: 12px 0 4px; color: @muted@; font-style: italic; }
-.bd-why { margin-top: 10px; color: @text@; font-size: .9rem; }
+.bd-why { margin-top: 12px; background: @bg@; border-left: 3px solid @green@;
+  padding: 10px 14px; border-radius: 8px; color: @text@; font-size: .9rem; }
 .bd-why b { color: @accent@; }
+.bd-up { color: @green@; font-family: @mono@; font-weight: 600; }
+.bd-down { color: @red@; font-family: @mono@; font-weight: 600; }
+.bd-same { color: @muted@; font-family: @mono@; font-weight: 600; }
+.bd-trace { color: @muted@; font-family: @mono@; font-size: .78rem; }
+.bd-tag { font-family: @mono@; font-size: .75rem; font-weight: 600; }
+.bd-tag.cache { color: @green@; }
+.bd-tag.live { color: @amber@; }
 .bd-table { width: 100%; border-collapse: collapse; font-size: .88rem; margin-top: 4px; }
 .bd-table th { text-align: left; color: @muted@; font-size: .68rem;
   text-transform: uppercase; letter-spacing: .08em; padding: 6px 10px;
   border-bottom: 1px solid @border@; }
-.bd-table td { padding: 9px 10px; border-bottom: 1px solid @border@; color: @text@; }
+.bd-table td { padding: 9px 10px; border-bottom: 1px solid @border@; color: @text@;
+  font-variant-numeric: tabular-nums; }
 .bd-table tbody tr:hover td { background: @rowhover@; }
 
 /* ---- brand header (P5) ---- */
@@ -315,16 +338,20 @@ for key, default in (("scores", []), ("deltas", []), ("agent_out", None),
 
 # ------------------------------------------------------------------ header + meter
 
-st.markdown(BRAND_HTML, unsafe_allow_html=True)
-st.caption(f"IDX swing-trading analyst · as-of {AS_OF.isoformat()} (WIB) · "
-           "analysis only — **no trade execution, ever** (FR9)")
-
-m1, m2, m3 = st.columns(3)
 stt = budget.status()
-m1.metric("Sectors credits left", stt["remaining_total"], help="of 800 spendable (200 reserve locked)")
-m2.metric("Today (WIB)", f"{stt['daily_spent']} / 200", help="soft warn at 200/day")
-m3.metric("This run", f"{stt['run_spent']} / 60", help="hard cap 60/run")
-st.markdown(meter_style(stt, PALETTES[THEME]), unsafe_allow_html=True)
+hL, hR = st.columns([2.2, 3], gap="large")
+with hL:
+    st.markdown(BRAND_HTML, unsafe_allow_html=True)
+    st.caption(f"IDX swing-trading analyst · as-of {AS_OF.isoformat()} (WIB) · "
+               "analysis only — **no trade execution, ever** (FR9)")
+with hR:
+    st.markdown(f'<div class="bd-chip-right">{datetime.now(WIB).strftime("%d %b %H:%M")} '
+                "WIB</div>", unsafe_allow_html=True)
+    m1, m2, m3 = st.columns(3)
+    m1.metric("Sectors credits left", stt["remaining_total"], help="of 800 spendable (200 reserve locked)")
+    m2.metric("Today (WIB)", f"{stt['daily_spent']} / 200", help="soft warn at 200/day")
+    m3.metric("This run", f"{stt['run_spent']} / 60", help="hard cap 60/run")
+    st.markdown(meter_style(stt, PALETTES[THEME]), unsafe_allow_html=True)
 
 if st.session_state["last_error"]:
     st.error(st.session_state["last_error"])
@@ -457,20 +484,25 @@ def pick_card(r: dict, badge: str | None = None) -> str:
     gate = (r.get("gates") or {}).get("no_chase", {}) or {}
     score, denom = r.get("score"), r.get("denominator")
 
+    kind = _decision_kind(label, bool(gate.get("triggered")))
+    bias = d.get("bias") if isinstance(d, dict) else None
     head = [f'<span class="bd-sym">{sym}</span>',
             _pill(f"{score}/{denom}" if score is not None else "—", _score_kind(score))
             + dots_html(score, denom, _score_kind(score)),
-            _pill(label + (f" · {deploy}" if deploy else ""),
-                  _decision_kind(label, bool(gate.get("triggered"))))]
+            _pill(label + (f" · {deploy}" if deploy else ""), kind)]
+    if bias:
+        head.append(_pill(bias, "blue"))
     if badge:
         head.append(f'<span class="bd-badge">{badge}</span>')
     head.append(f'<span class="bd-badge">as of {r.get("as_of")}</span>')
+    action = (f'<div class="bd-action {kind}">Action: {label}'
+              + (f" ({deploy} deploy)" if deploy else "") + "</div>")
 
     checks = []
     for fk, flabel in FACTOR_LABELS.items():
         f = (r.get("factors") or {}).get(fk)
         if f is None:
-            mark = '<span class="bd-null">–</span>'
+            mark = '<span class="bd-null">○</span>'
         elif f.get("pass"):
             mark = '<span class="bd-ok">✓</span>'
         else:
@@ -482,7 +514,7 @@ def pick_card(r: dict, badge: str | None = None) -> str:
         ez = tp["entry_zone"]
         body = ('<div class="bd-grid">'
                 f'<div class="bd-kv"><span>Entry zone</span><b>{_fmt_price(ez[0])}–{_fmt_price(ez[1])}</b></div>'
-                f'<div class="bd-kv"><span>Stop (close)</span><b>{_fmt_price(tp["stop_close"])}</b></div>'
+                f'<div class="bd-kv stop"><span>Stop (close)</span><b>{_fmt_price(tp["stop_close"])}</b></div>'
                 f'<div class="bd-kv"><span>Lots · 0.5% risk</span><b>{tp["lots"]}</b></div>'
                 "</div>")
     else:
@@ -492,11 +524,12 @@ def pick_card(r: dict, badge: str | None = None) -> str:
     why = ("no-chase gate triggered — WAIT for pullback (never chase, D3)"
            if gate.get("triggered") else
            f"{score}/{denom} confluence · regime {(r.get('gates') or {}).get('regime', 'n/a')}"
-           + (f" · flags: {', '.join(r.get('risk_flags') or [])}" if r.get("risk_flags") else ""))
+           + (f" · flags: {', '.join(r.get('risk_flags') or [])}" if r.get('risk_flags') else ""))
 
     return ('<div class="bd-card">'
             f'<div class="bd-row">{"".join(head)}</div>'
             f'<div class="bd-checks">{" · ".join(checks)}</div>'
+            f"{action}"
             f"{body}"
             f'<div class="bd-why"><b>Why:</b> {why}</div>'
             "</div>")
@@ -555,21 +588,35 @@ def deltas_table(deltas: list[dict]) -> str:
         dec_new = d["decision_new"] or "—"
         gate = d.get("gate_override")
         kind = "amber" if gate else ("red" if dec_new == "WAIT" else "green")
-        score_cell = (f'{d["score_old"]}/{d["denominator_old"]} → '
-                      f'{d["score_new"]}/{d["denominator_new"]}'
-                      if d["has_prev"] else f'new: {d["score_new"]}/{d["denominator_new"]}')
+        score_cell = f'{d["score_new"]}/{d["denominator_new"]}'
         score_cell += dots_html(d["score_new"], d["denominator_new"], kind)
+        if d["has_prev"]:
+            old, new = d["score_old"], d["score_new"]
+            if new > old:
+                delta_cell = f'<span class="bd-up">▲ {old}→{new}</span>'
+            elif new < old:
+                delta_cell = f'<span class="bd-down">▼ {old}→{new}</span>'
+            else:
+                delta_cell = f'<span class="bd-same">= {old}→{new}</span>'
+            prior = d.get("prev_date") or "—"
+            try:
+                prior += f" ({(AS_OF - datetime.fromisoformat(prior).date()).days}d)"
+            except (ValueError, TypeError):
+                pass
+        else:
+            delta_cell = '<span class="bd-same">new</span>'
+            prior = "—"
         dec_cell = (f'{d["decision_old"]} → ' if d["has_prev"] else "") + _pill(dec_new, kind)
-        gate_cell = _pill("⊘ no-chase", "amber") if gate else ""
+        gate_cell = _pill("⊘ no-chase", "amber") if gate else '<span class="bd-null">—</span>'
         rows.append(f'<tr><td class="bd-mono">{d["ticker"]}</td>'
                     f'<td class="bd-mono">{score_cell}</td>'
-                    f"<td>{dec_cell}</td><td>{gate_cell}</td>"
-                    f'<td class="bd-mono">{d.get("prev_date") or "—"}</td></tr>')
+                    f"<td>{delta_cell}</td><td>{dec_cell}</td><td>{gate_cell}</td>"
+                    f'<td class="bd-mono">{prior}</td></tr>')
     return ('<table class="bd-table"><thead><tr>'
-            '<th style="width:10%">Ticker</th><th style="width:26%">Score</th>'
-            '<th style="width:22%">Decision</th><th style="width:22%">Gate override</th>'
-            '<th style="width:20%">Prior date</th></tr></thead>'
-            f'<tbody>{"".join(rows)}</tbody></table>')
+            '<th style="width:10%">Ticker</th><th style="width:18%">Score</th>'
+            '<th style="width:12%">Δ</th><th style="width:22%">Decision</th>'
+            '<th style="width:18%">Gate</th><th style="width:20%">Prior date</th>'
+            f'</tr></thead><tbody>{"".join(rows)}</tbody></table>')
 
 
 st.markdown(h2(IC_BARS, "WATCHLIST DELTAS"), unsafe_allow_html=True)
@@ -610,7 +657,7 @@ if agent_out is not None:
 
 # ------------------------------------------------------------- workings (collapsed)
 
-with st.expander("Workings — plan · data pulls · factor math · credits", expanded=False):
+with st.expander("Show Workings (Audit Trail)", expanded=False):
     if agent_out:
         st.markdown("**Agent plan** (LLM calls: "
                     f"{', '.join(agent_out.get('llm_calls', [])) or '—'})")
@@ -628,7 +675,16 @@ with st.expander("Workings — plan · data pulls · factor math · credits", ex
     if traces:
         with st.status(f"{len(traces)} pull(s)", expanded=False) as status:
             for t in traces:
-                st.write(f"`{t}`")
+                if "[" in t:
+                    pre, tag = t.split("[", 1)
+                    tag = "[" + tag
+                    cls = "live" if tag.startswith("[live") else "cache"
+                    st.markdown(f'<span class="bd-trace">{pre.strip()}</span> '
+                                f'<span class="bd-tag {cls}">{tag}</span>',
+                                unsafe_allow_html=True)
+                else:
+                    st.markdown(f'<span class="bd-trace">{t}</span>',
+                                unsafe_allow_html=True)
             status.update(label=f"{len(traces)} pull(s) — "
                           f"{sum('[cache]' in t for t in traces)} cache / "
                           f"{sum('[live' in t for t in traces)} live", state="complete")

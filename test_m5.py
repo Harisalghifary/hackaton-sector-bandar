@@ -228,17 +228,17 @@ def test_boot_restores_last_run_from_memory(env):
 def test_theme_defaults_dark_and_switches_via_env(env, monkeypatch):
     at = boot(env)                                             # BANDAR_THEME unset -> dark
     css = "\n".join(str(getattr(el, "value", el)) for el in at.markdown)
-    assert "#0d1117" in css and "bd-card" in css
+    assert "#0f0f1a" in css and "bd-card" in css
 
     monkeypatch.setenv("BANDAR_THEME", "light")
     at2 = boot(env)
     css2 = "\n".join(str(getattr(el, "value", el)) for el in at2.markdown)
-    assert "#ffffff" in css2 and "#0d1117" not in css2
+    assert "#ffffff" in css2 and "#0f0f1a" not in css2
 
     monkeypatch.setenv("BANDAR_THEME", "nonsense")             # invalid -> falls back dark
     at3 = boot(env)
     css3 = "\n".join(str(getattr(el, "value", el)) for el in at3.markdown)
-    assert "#0d1117" in css3
+    assert "#0f0f1a" in css3
 
 
 EMOJI_BANNED = ["\U0001F3AF", "\U0001F4CA", "\U0001F527", "\u2705", "\u274C", "\U0001F504", "\u2B07", "\U0001F4C8", "\U0001F4AC", "\u26D4", "\u2796"]
@@ -271,3 +271,6 @@ def test_p4_context_panel_chip_and_p6_meter_style(env):
     assert "Scored" in text and "2/2" in text
     assert "last scored:" in text                                  # chip now has a time
     assert '<th style="width:10%">Ticker</th>' in text             # P4 compact columns
+    assert "<th>Δ</th>" in text or 'width:12%">Δ' in text          # pass-4 delta column
+    assert "bd-same" in text or "bd-up" in text or "bd-down" in text
+    assert "Action:" in text and "bd-pill blue" in text            # action line + bias badge
