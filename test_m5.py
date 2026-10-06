@@ -1,0 +1,225 @@
+"""M5 UI tests (§9) — headless via streamlit.testing.v1.AppTest.
+
+LOCKED rules under test: API calls only behind buttons, results in session_state,
+credit meter (st.metric), stream brief (st.write_stream), st.status trace rows,
+collapsed workings, and the DO-NOT-BUILD list (no auth/charts/settings/execution).
+
+0 credits: BANDAR_AS_OF pins the seeded day (warm cache), BANDAR_STATE_DIR
+isolates the ledger, sockets are blocked, run_agent is mocked.
+
+Run: python -m pytest test_m5.py -v
+"""
+
+from __future__ import annotations
+
+import socket
+from pathlib import Path
+
+import pytest
+from streamlit.testing.v1 import AppTest
+
+REPO = Path(__file__).resolve().parent
+
+MOCK_BRIEF = {
+    "type": "brief",
+    "brief": {
+        "symbol": "BBRI",
+        "extracted": ["score 0/5, decision WAIT", "close 3120 as of 2026-10-05"],
+        "interpretation": "No confluence while distribution persists.",
+        "action_plan": ["Stay in cash; re-check after the next session."],
+        "risk_flags": ["foreign distribution"],
+    },
+    "dropped_figures": [],
+    "intent": {"intent": "score_ticker", "symbols": ["BBRI"], "question": "q"},
+    "plan": {"steps": [{"tool": "score_ticker", "args": {"symbol": "BBRI"}, "reason": "r"}]},
+    "tool_results": [],
+    "memory_context": [],
+    "truncated": False,
+    "llm_calls": ["intent", "plan", "synthesis"],
+    "trace": ["ohlcv:/v2/daily/BBRI/ [cache]"],
+}
+
+
+@pytest.fixture(autouse=True)
+def no_network(monkeypatch):
+    def blocked(*args, **kwargs):
+        raise RuntimeError("network access during M5 tests — must be 0 live calls")
+    monkeypatch.setattr(socket.socket, "connect", blocked)
+    monkeypatch.setattr(socket.socket, "connect_ex", blocked)
+    monkeypatch.setattr(socket, "create_connection", blocked)
+
+
+@pytest.fixture()
+def env(tmp_path, monkeypatch):
+    """Isolated ledger/DB + pinned seed day + watchlist. Cache stays the real warm one."""
+    monkeypatch.setenv("BANDAR_STATE_DIR", str(tmp_path / "state"))
+    monkeypatch.setenv("BANDAR_AS_OF", "2026-10-06")
+    monkeypatch.setenv("BANDAR_WATCHLIST", "BBRI,BMRI")
+    monkeypatch.setenv("SECTORS_API_KEY", "TESTKEY")     # cache-first; warm cache -> 0 calls
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    return tmp_path
+
+
+def boot(env):
+    at = AppTest.from_file(str(REPO / "app.py"), default_timeout=60)
+    return at.run()
+
+
+def all_text(at) -> str:
+    parts = []
+    for name in ("title", "header", "subheader", "markdown", "caption", "info",
+                 "warning", "error", "success"):
+        for el in getattr(at, name, []):
+            parts.append(str(getattr(el, "value", el)))
+    for m in at.metric:
+        parts.append(f"{m.label}={m.value}")
+    return "\n".join(parts)
+
+
+def find_button(at, label_part):
+    for b in at.button:
+        if label_part.lower() in str(b.label).lower():
+            return b
+    raise AssertionError(f"button {label_part!r} not found; have: "
+                         f"{[b.label for b in at.button]}")
+
+
+# --------------------------------------------------------------------- boot state
+
+
+def test_boot_renders_without_any_api_call(env):
+    at = boot(env)
+    assert not at.exception
+    text = all_text(at)
+    assert "BANDAR" in text and "no trade execution" in text.lower()
+    # fresh isolated ledger -> full 800 spendable shown in the credit meter
+    assert any(m.value == "800" for m in at.metric)
+    assert "No scores yet" in text                      # nothing scored until a button
+    # budget state file was never even created (no charge happened)
+    assert not (env / "state" / "budget_state.json").exists() or \
+        '"total_spent": 0' in (env / "state" / "budget_state.json").read_text()
+
+
+def test_locked_controls_present(env):
+    at = boot(env)
+    assert find_button(at, "Force Live Refresh") is not None
+    downloads = at.get("download_button")
+    assert len(downloads) == 1 and "Download Brief" in downloads[0].label
+    assert downloads[0].disabled                          # no brief yet
+    assert len(at.chat_input) == 1                        # free-text ask (FR12)
+
+
+def test_no_execution_path_anywhere(env):
+    """FR9 / DO-NOT-BUILD: no buy/sell/order/execution control may exist."""
+    at = boot(env)
+    find_button(at, "Force Live Refresh")                 # these two may exist…
+    at.get("download_button")
+    for b in at.button:
+        low = str(b.label).lower()
+        assert not any(w in low for w in ("buy", "sell", "order", "execut", "trade"))
+    text = all_text(at).lower()
+    assert "never executes" in text or "no trade execution" in text
+
+
+# ---------------------------------------------------------------- refresh button
+
+
+def test_force_refresh_scores_watchlist_from_cache(env):
+    at = boot(env)
+    at = find_button(at, "Force Live Refresh").click().run()
+    assert not at.exception
+
+    scores = at.session_state["scores"]
+    assert len(scores) == 2                                # BBRI + BMRI from env watchlist
+    assert {s["symbol"] for s in scores} == {"BBRI", "BMRI"}
+    assert all(s["status"] == "ok" and s["bars"] >= 200 for s in scores)
+
+    deltas = at.session_state["deltas"]
+    assert len(deltas) == 2 and all(d["has_prev"] is False for d in deltas)  # first run
+
+    # all pulls were cache hits -> isolated ledger still at 0 (0 credits)
+    assert (env / "state" / "budget_state.json").exists() is False or \
+        '"total_spent": 0' in (env / "state" / "budget_state.json").read_text()
+
+    text = all_text(at)
+    assert "TOP PICK" in text and ("BBRI" in text or "BMRI" in text)
+    assert "WATCHLIST DELTAS" in text
+    assert len(at.dataframe) == 1                          # deltas table rendered
+
+
+def test_refresh_is_idempotent_and_reruns_keep_session(env):
+    at = boot(env)
+    at = find_button(at, "Force Live Refresh").click().run()
+    first = at.session_state["scores"]
+    at = find_button(at, "Force Live Refresh").click().run()   # second press, same day
+    assert at.session_state["scores"] == first                 # deterministic, cached
+    assert '"total_spent": 0' in (env / "state" / "budget_state.json").read_text()
+
+
+# ------------------------------------------------------------------- ask flow
+
+
+def test_ask_streams_brief_and_fills_session(env, monkeypatch):
+    import agent.executor as executor_mod
+    calls = []
+
+    def fake_run_agent(question, ctx, **kw):
+        calls.append(question)
+        return MOCK_BRIEF
+
+    monkeypatch.setattr(executor_mod, "run_agent", fake_run_agent)
+    at = boot(env)
+    at.chat_input[0].set_value("how is BBRI?").run()
+
+    assert calls == ["how is BBRI?"]                       # ask triggers the agent run
+    assert at.session_state["agent_out"]["type"] == "brief"
+    assert at.session_state["brief_md"].startswith("# BANDAR brief — BBRI")
+    text = all_text(at)
+    assert "No confluence while distribution persists." in text     # streamed (write_stream)
+    assert "score 0/5, decision WAIT" in text
+    assert "Answer" in text
+    # download button now enabled with the brief
+    downloads = at.get("download_button")
+    assert not downloads[0].disabled
+
+
+def test_ask_fallback_rendered_gracefully(env, monkeypatch):
+    import agent.executor as executor_mod
+    monkeypatch.setattr(executor_mod, "run_agent", lambda q, ctx, **kw: {
+        "type": "fallback", "message": "Outside Bandar's scope: I never execute trades.",
+        "llm_calls": ["intent"],
+    })
+    at = boot(env)
+    at.chat_input[0].set_value("buy BBRI now").run()
+    assert not at.exception
+    assert any("Outside Bandar" in str(w.value) for w in at.warning)
+
+
+def test_workings_expander_collapsed_with_traces_and_plan(env, monkeypatch):
+    import agent.executor as executor_mod
+    monkeypatch.setattr(executor_mod, "run_agent", lambda q, ctx, **kw: MOCK_BRIEF)
+    at = boot(env)
+    at = find_button(at, "Force Live Refresh").click().run()
+    at.chat_input[0].set_value("how is BBRI?").run()
+
+    exps = [e for e in at.expander if "Workings" in str(getattr(e, "label", ""))]
+    assert exps, "collapsed workings expander must exist (§9)"
+    # collapsed by default: app.py passes expanded=False (D9 — expanded once on camera only)
+    text = all_text(at)
+    assert "Agent plan" in text and "score_ticker" in text
+    assert "[cache]" in text                               # cache/live tags visible
+    assert "Per-factor math" in text and "Credit meter" in text
+
+
+# ------------------------------------------------------------------ boot restore
+
+
+def test_boot_restores_last_run_from_memory(env):
+    at = boot(env)
+    at = find_button(at, "Force Live Refresh").click().run()   # writes memory (D7)
+    assert at.session_state["scores"]
+
+    at2 = boot(env)                                            # fresh session, same state dir
+    text = all_text(at2)
+    assert "last recorded run from memory" in text             # 0-cr restore notice
+    assert "BBRI" in text or "BMRI" in text

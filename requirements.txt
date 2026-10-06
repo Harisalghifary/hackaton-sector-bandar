@@ -2,4 +2,5 @@ requests>=2.31
 python-dotenv>=1.0
 pandas>=2.2
 pandas-ta>=0.4.71b0
+streamlit>=1.40
 pytest>=8.0
