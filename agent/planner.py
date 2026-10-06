@@ -169,10 +169,12 @@ class Planner:
         try:
             out = self.llm.complete(system=system, user=question,
                                     schema=INTENT_SCHEMA, purpose="intent")
-        except LLMError:
-            return {"intent": "fallback", "symbols": [], "question": question}
+        except LLMError as exc:
+            return {"intent": "fallback", "symbols": [], "question": question,
+                    "reason": f"intent transport failed: {exc}"}
         if not isinstance(out, dict) or out.get("intent") not in INTENTS:
-            return {"intent": "fallback", "symbols": [], "question": question}
+            return {"intent": "fallback", "symbols": [], "question": question,
+                    "reason": f"intent value invalid: {out!r:.200}"}
         out.setdefault("symbols", [])
         out.setdefault("question", question)
         return out

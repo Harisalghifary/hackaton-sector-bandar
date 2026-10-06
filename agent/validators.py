@@ -11,7 +11,12 @@ by design, and watchlist_rw must be able to ADD new names — both unrestricted.
 
 from __future__ import annotations
 
+import re
+
 from client import _normalize_symbol
+
+# Numeric token: digits with optional thousands separators / decimal part.
+NUM_TOKEN_RE = re.compile(r"\d[\d,]*\.?\d*")
 
 # Arg schemas per tool (§8 signatures). "symbol_restricted" => watchlist only.
 ARG_RULES: dict[str, dict] = {
@@ -113,3 +118,93 @@ def validate_plan_or_raise(plan, watchlist: list[str]) -> dict:
     if errors:
         raise PlanValidationError(errors)
     return plan
+
+
+# ------------------------------------------------- numeric trace validator (FR10)
+# §8: "every figure in output must appear in tool-result trace; else dropped/flagged"
+# §14 non-negotiable: every output number traces to a tool result.
+# §8 voice: quote values exactly — no derived arithmetic, so no unit reformatting
+# (530B, 42%, 3.1k) is accepted unless that exact token appears in the corpus.
+
+
+def _canonical_number_forms(value) -> set[str]:
+    """All exact textual forms a JSON numeric value may be quoted as."""
+    forms: set[str] = set()
+    if isinstance(value, bool):
+        return forms
+    if isinstance(value, int):
+        forms.add(str(value))
+    elif isinstance(value, float):
+        r = round(value, 4)
+        forms.add(repr(r))
+        if r == int(r):
+            forms.add(str(int(r)))       # 3120.0 quotable as "3120"
+    return forms
+
+
+def _string_tokens(text: str) -> set[str]:
+    out: set[str] = set()
+    for tok in NUM_TOKEN_RE.findall(text):
+        out.add(tok)
+        stripped = tok.replace(",", "")
+        out.add(stripped)
+        if "." not in stripped:
+            out.add(str(int(stripped)))  # "05" (dates) quotable as "5"
+    return out
+
+
+def _walk_corpus(node, allowed: set[str]) -> None:
+    if isinstance(node, dict):
+        for k, v in node.items():
+            allowed.update(_string_tokens(str(k)))
+            _walk_corpus(v, allowed)
+    elif isinstance(node, (list, tuple)):
+        for item in node:
+            _walk_corpus(item, allowed)
+    elif isinstance(node, str):
+        allowed.update(_string_tokens(node))
+    elif isinstance(node, (int, float)):
+        allowed.update(_canonical_number_forms(node))
+
+
+def collect_allowed_numbers(corpus) -> set[str]:
+    """Every exact numeric token appearing in tool results / memory context."""
+    allowed: set[str] = set()
+    _walk_corpus(corpus, allowed)
+    return allowed
+
+
+def _token_ok(token: str, allowed: set[str]) -> bool:
+    return token in allowed or token.replace(",", "") in allowed
+
+
+def validate_brief_numbers(brief: dict, allowed: set[str]) -> tuple[dict, list[dict]]:
+    """Enforce FR10 on a submit_brief: figures not in the corpus are dropped/flagged.
+
+    - extracted / action_plan / risk_flags: whole items containing unverifiable
+      figures are DROPPED (recorded in the returned list — honest narration).
+    - interpretation: unverifiable figure tokens are replaced with "[removed]"
+      and listed in interpretation_flag (FLAGGED, never silently kept).
+    """
+    cleaned = dict(brief)
+    dropped: list[dict] = []
+
+    for section in ("extracted", "action_plan", "risk_flags"):
+        kept = []
+        for item in cleaned.get(section) or []:
+            text = str(item)
+            bad = sorted({t for t in NUM_TOKEN_RE.findall(text) if not _token_ok(t, allowed)})
+            if bad:
+                dropped.append({"section": section, "item": text, "figures": bad})
+            else:
+                kept.append(item)
+        cleaned[section] = kept
+
+    interp = str(cleaned.get("interpretation") or "")
+    bad_interp = sorted({t for t in NUM_TOKEN_RE.findall(interp) if not _token_ok(t, allowed)})
+    if bad_interp:
+        cleaned["interpretation"] = NUM_TOKEN_RE.sub(
+            lambda m: m.group(0) if _token_ok(m.group(0), allowed) else "[removed]", interp)
+        cleaned["interpretation_flag"] = bad_interp
+        dropped.append({"section": "interpretation", "figures": bad_interp})
+    return cleaned, dropped

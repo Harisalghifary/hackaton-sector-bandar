@@ -299,14 +299,16 @@ def test_intent_classification_and_graceful_fallback(ctx):
     assert out["intent"] == "smart_money" and out["symbols"] == ["BMRI"]
     assert fake.calls[0]["schema"] == INTENT_SCHEMA
 
-    # transport failure -> graceful fallback (FR12), never a crash
+    # transport failure -> graceful fallback (FR12), never a crash — with observable reason
     fake_err = FakeLLM([LLMError("gemini HTTP 500")])
     out = Planner(fake_err, ctx).classify_intent("hello?")
     assert out["intent"] == "fallback" and out["symbols"] == []
+    assert "transport failed" in out["reason"]
 
     # garbage intent value -> fallback
     fake_bad = FakeLLM([{"intent": "moon", "symbols": [], "question": "x"}])
-    assert Planner(fake_bad, ctx).classify_intent("x")["intent"] == "fallback"
+    out = Planner(fake_bad, ctx).classify_intent("x")
+    assert out["intent"] == "fallback" and "invalid" in out["reason"]
 
 
 def test_llm_call_counter_enforces_max_3(ctx):
