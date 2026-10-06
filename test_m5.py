@@ -241,6 +241,38 @@ def test_theme_defaults_dark_and_switches_via_env(env, monkeypatch):
     assert "#0f0f1a" in css3
 
 
+def _md(at) -> str:
+    return "\n".join(str(getattr(el, "value", el)) for el in at.markdown)
+
+
+def _shows(md: str, theme: str) -> bool:
+    """Active palette = last-injected <style>. Markers unique per palette:
+    #0f0f1a exists only in dark, #eaeef2 only in light (#ffffff is dark's TEXT)."""
+    mine, other = ("#0f0f1a", "#eaeef2") if theme == "dark" else ("#eaeef2", "#0f0f1a")
+    return mine in md and md.rfind(mine) > md.rfind(other)
+
+
+def _toggle(at, icon):
+    return next(b for b in at.button if f"material/{icon}" in str(b.label))
+
+
+def test_theme_toggle_button_flips_session(env):
+    at = boot(env)                                             # dark default
+    assert _shows(_md(at), "dark")
+    at = _toggle(at, "dark_mode").click().run().run()          # moon shown -> go light
+    assert _shows(_md(at), "light")
+    at = _toggle(at, "light_mode").click().run().run()         # sun shown -> back to dark
+    assert _shows(_md(at), "dark")
+
+
+def test_theme_session_toggle_beats_env(env, monkeypatch):
+    monkeypatch.setenv("BANDAR_THEME", "light")
+    at = boot(env)
+    assert _shows(_md(at), "light")                            # env default honored
+    at = _toggle(at, "light_mode").click().run().run()         # session override wins
+    assert _shows(_md(at), "dark")
+
+
 EMOJI_BANNED = ["\U0001F3AF", "\U0001F4CA", "\U0001F527", "\u2705", "\u274C", "\U0001F504", "\u2B07", "\U0001F4C8", "\U0001F4AC", "\u26D4", "\u2796"]
 
 
@@ -274,3 +306,5 @@ def test_p4_context_panel_chip_and_p6_meter_style(env):
     assert "<th>Δ</th>" in text or 'width:12%">Δ' in text          # pass-4 delta column
     assert "bd-same" in text or "bd-up" in text or "bd-down" in text
     assert "Action:" in text and "bd-pill blue" in text            # action line + bias badge
+    assert "Below MA200 — bearish tape" in text                    # pass-5 human regime
+    assert any(":material/sync:" in str(b.label) for b in at.button)

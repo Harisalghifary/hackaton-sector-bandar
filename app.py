@@ -12,7 +12,8 @@ Rules honored:
   risk-profile switcher, no backtesting, NO execution path (FR9).
 - Env anchors: BANDAR_AS_OF (replay a seeded day deterministically), BANDAR_STATE_DIR
   (isolate ledger/DB — used by tests), BANDAR_THEME=dark|light (default dark —
-  a UI preference only, NOT a settings page; set once per run/recording).
+  per-process default for camera-safe recordings; the in-UI sun/moon toggle
+  overrides it per session via st.session_state, NOT a settings page).
 
 Run: streamlit run app.py            (dark terminal look)
      BANDAR_THEME=light streamlit run app.py
@@ -44,9 +45,12 @@ FACTOR_LABELS = {"f1_macd": "F1 MACD", "f2_volume": "F2 Vol", "f3_ad": "F3 A/D",
 
 # --------------------------------------------------------------------- theming
 
-THEME = os.environ.get("BANDAR_THEME", "dark").strip().lower()
-if THEME not in ("dark", "light"):
-    THEME = "dark"
+def resolve_theme() -> str:
+    """Session toggle > BANDAR_THEME env > dark. Invalid -> dark."""
+    t = (st.session_state.get("theme") or os.environ.get("BANDAR_THEME", "dark"))
+    t = str(t).strip().lower()
+    return t if t in ("dark", "light") else "dark"
+
 
 PALETTES = {
     # "Bloomberg terminal meets Telegram" night scheme (pass-4 audit adoption):
@@ -55,14 +59,16 @@ PALETTES = {
     "dark": dict(scheme="dark", bg="#0f0f1a", panel="#1a1a2e", highlight="#16213e",
                  cardborder="#0f3460", text="#ffffff", muted="#888888",
                  border="#2b2b45", green="#4ade80", amber="#fbbf24",
-                 red="#f87171", accent="#3b82f6", on_accent="#ffffff",
+                 red="#f87171", accent="#3b82f6", accent2="#6366f1", on_accent="#ffffff",
+                 glow="rgba(59,130,246,0.35)", markfill="#1a1a2e", markstroke="#0f3460",
                  rowhover="rgba(255,255,255,0.05)", green_bg="rgba(74,222,128,0.14)",
                  amber_bg="rgba(251,191,36,0.14)", red_bg="rgba(248,113,113,0.14)",
                  mono='"SF Mono", "Monaco", "Inconsolata", ui-monospace, Menlo, monospace'),
     "light": dict(scheme="light", bg="#ffffff", panel="#f6f8fa", highlight="#eaeef2",
                   cardborder="#b6c2cf", text="#1f2328", muted="#57606a",
                   border="#d0d7de", green="#1a7f37", amber="#9a6700",
-                  red="#cf222e", accent="#0969da", on_accent="#ffffff",
+                  red="#cf222e", accent="#0969da", accent2="#4f46e5", on_accent="#ffffff",
+                  glow="rgba(9,105,218,0.18)", markfill="#eaeef2", markstroke="#94a3b8",
                   rowhover="rgba(31,35,40,0.04)", green_bg="rgba(26,127,55,0.10)",
                   amber_bg="rgba(154,103,0,0.10)", red_bg="rgba(207,34,46,0.10)",
                   mono='"SF Mono", "Monaco", "Inconsolata", ui-monospace, Menlo, monospace'),
@@ -72,8 +78,11 @@ CSS_TEMPLATE = """
 <style>
 :root { color-scheme: @scheme@; --bd-bg: @bg@; --bd-panel: @panel@; --bd-text: @text@;
   --bd-muted: @muted@; --bd-border: @border@; --bd-green: @green@; --bd-amber: @amber@;
-  --bd-red: @red@; --bd-accent: @accent@; }
-html, body, [data-testid="stAppViewContainer"], .stApp { background: @bg@ !important; }
+  --bd-red: @red@; --bd-accent: @accent@; --bd-markfill: @markfill@;
+  --bd-markstroke: @markstroke@; }
+html, body, [data-testid="stAppViewContainer"], .stApp,
+section[data-testid="stApp"], [data-testid="stAppScrollToBottomContainer"] {
+  background: @bg@ !important; }
 [data-testid="stAppViewContainer"] h1, [data-testid="stAppViewContainer"] h2,
 [data-testid="stAppViewContainer"] h3, [data-testid="stAppViewContainer"] h4,
 [data-testid="stAppViewContainer"] p, [data-testid="stAppViewContainer"] li,
@@ -96,8 +105,20 @@ html, body, [data-testid="stAppViewContainer"], .stApp { background: @bg@ !impor
   border-radius: 10px; font-weight: 600; }
 [data-testid="stButton"] button:hover, [data-testid="stDownloadButton"] button:hover {
   border-color: @accent@; color: @accent@; }
-[data-testid="stBaseButton-primary"] { background: @accent@ !important;
-  border-color: @accent@ !important; color: @on_accent@ !important; }
+[data-testid="stBaseButton-primary"] {
+  background: linear-gradient(135deg, @accent@ 0%, @accent2@ 100%) !important;
+  border-color: @accent@ !important; color: @on_accent@ !important;
+  box-shadow: 0 4px 14px @glow@; }
+[data-testid="stBaseButton-primary"]:hover { transform: translateY(-1px);
+  box-shadow: 0 6px 18px @glow@; }
+/* pass-5: the actions row reads as one designed toolbar band */
+[data-testid="stHorizontalBlock"]:has([data-testid="stBaseButton-primary"]) {
+  background: @panel@; border: 1px solid @border@; border-radius: 14px;
+  padding: 10px 14px; }
+/* pass-5: session theme toggle — compact square icon button */
+[data-testid="stColumn"]:has([data-testid="stMetric"]) button:first-of-type {
+  width: 38px; height: 38px; padding: 0; display: flex; align-items: center;
+  justify-content: center; border-radius: 10px; }
 
 /* workings expander + status + code */
 [data-testid="stExpander"] { background: @panel@; border: 1px solid @border@;
@@ -149,6 +170,7 @@ html, body, [data-testid="stAppViewContainer"], .stApp { background: @bg@ !impor
 .bd-action.red { color: @red@; }
 .bd-badge { color: @muted@; font-size: .75rem; border: 1px dashed @border@;
   border-radius: 999px; padding: 2px 10px; }
+.bd-row .bd-badge:last-child { margin-left: auto; }   /* as-of badge right-anchored */
 .bd-checks { margin: 10px 0 4px; color: @muted@; font-size: .85rem; }
 .bd-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 12px; margin: 12px 0 4px; }
@@ -249,10 +271,10 @@ def build_css(palette: dict) -> str:
 # currentColor / CSS vars. No emoji anywhere in the UI chrome.
 IC_MARK = ('<svg class="bd-mark" viewBox="0 0 32 32" fill="none" aria-hidden="true">'
            '<rect x="1" y="1" width="30" height="30" rx="8" '
-           'style="fill:var(--bd-panel, #161b22); stroke:var(--bd-border, #30363d)"/>'
-           '<path d="M8 22l5.5-7 4 3.2L24 9" style="stroke:var(--bd-accent, #58a6ff)" '
+           'style="fill:var(--bd-markfill, #1a1a2e); stroke:var(--bd-markstroke, #0f3460)"/>'
+           '<path d="M8 22l5.5-7 4 3.2L24 9" style="stroke:var(--bd-accent, #3b82f6)" '
            'stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>'
-           '<circle cx="24" cy="9" r="2.6" style="fill:var(--bd-green, #3fb950)"/></svg>')
+           '<circle cx="24" cy="9" r="2.6" style="fill:var(--bd-green, #4ade80)"/></svg>')
 IC_TARGET = ('<svg class="bd-ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" '
              'stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="9"/>'
              '<circle cx="12" cy="12" r="4.5"/><circle cx="12" cy="12" r="1.2" '
@@ -271,6 +293,18 @@ BRAND_HTML = ('<div class="bd-brand">' + IC_MARK +
 
 def h2(icon: str, text: str) -> str:
     return f'<h2 class="bd-h">{icon}{text}</h2>'
+
+
+# Pass-5: trader-facing regime copy. Raw engine codes stay in Workings only.
+REGIME_LABELS = {
+    "bearish_below_ma200": "Below MA200 — bearish tape",
+    "bullish_above_ma200": "Above MA200 — bullish tape",
+    "neutral_insufficient": "Regime unknown — insufficient data",
+}
+
+
+def regime_label(code) -> str:
+    return REGIME_LABELS.get(code, str(code).replace("_", " "))
 
 
 def dots_html(score, denom, kind: str) -> str:
@@ -307,6 +341,7 @@ def meter_style(stt: dict, palette: dict) -> str:
 
 
 st.set_page_config(page_title="BANDAR", page_icon="📈", layout="wide")
+THEME = resolve_theme()
 st.markdown(build_css(PALETTES[THEME]), unsafe_allow_html=True)
 
 
@@ -345,13 +380,25 @@ with hL:
     st.caption(f"IDX swing-trading analyst · as-of {AS_OF.isoformat()} (WIB) · "
                "analysis only — **no trade execution, ever** (FR9)")
 with hR:
-    st.markdown(f'<div class="bd-chip-right">{datetime.now(WIB).strftime("%d %b %H:%M")} '
-                "WIB</div>", unsafe_allow_html=True)
+    tcol, tstamp = st.columns([1, 6])
+    with tcol:
+        if st.button(":material/dark_mode:" if THEME == "dark" else ":material/light_mode:",
+                     key="theme_toggle",
+                     help="Current theme — click to switch for this session "
+                          "(default: BANDAR_THEME env)"):
+            _new = "light" if THEME == "dark" else "dark"
+            st.session_state["theme"] = _new
+            # <style> is document-global: re-injecting here repaints the current
+            # rerun immediately (the top-of-script injection ran pre-handler).
+            st.markdown(build_css(PALETTES[_new]), unsafe_allow_html=True)
+    with tstamp:
+        st.markdown(f'<div class="bd-chip-right">{datetime.now(WIB).strftime("%d %b %H:%M")} '
+                    "WIB</div>", unsafe_allow_html=True)
     m1, m2, m3 = st.columns(3)
     m1.metric("Sectors credits left", stt["remaining_total"], help="of 800 spendable (200 reserve locked)")
     m2.metric("Today (WIB)", f"{stt['daily_spent']} / 200", help="soft warn at 200/day")
     m3.metric("This run", f"{stt['run_spent']} / 60", help="hard cap 60/run")
-    st.markdown(meter_style(stt, PALETTES[THEME]), unsafe_allow_html=True)
+    st.markdown(meter_style(stt, PALETTES[resolve_theme()]), unsafe_allow_html=True)
 
 if st.session_state["last_error"]:
     st.error(st.session_state["last_error"])
@@ -423,12 +470,12 @@ if prompt:
 
 col_a, col_b, col_c = st.columns([1, 1, 2.4])
 with col_a:
-    if st.button("Force Live Refresh", type="primary",
+    if st.button(":material/sync: Force Live Refresh", type="primary",
                  help="Fetch today's windows and re-score the watchlist"):
         do_refresh()
 with col_b:
     st.download_button(
-        "Download Brief", data=st.session_state["brief_md"] or "_no brief yet_",
+        ":material/download: Download Brief", data=st.session_state["brief_md"] or "_no brief yet_",
         file_name=f"bandar_brief_{AS_OF.isoformat()}.md", mime="text/markdown",
         disabled=not st.session_state["brief_md"],
     )
@@ -523,7 +570,8 @@ def pick_card(r: dict, badge: str | None = None) -> str:
 
     why = ("no-chase gate triggered — WAIT for pullback (never chase, D3)"
            if gate.get("triggered") else
-           f"{score}/{denom} confluence · regime {(r.get('gates') or {}).get('regime', 'n/a')}"
+           f"{score}/{denom} confluence · "
+           f"{regime_label((r.get('gates') or {}).get('regime', 'n/a'))}"
            + (f" · flags: {', '.join(r.get('risk_flags') or [])}" if r.get('risk_flags') else ""))
 
     return ('<div class="bd-card">'
@@ -554,7 +602,7 @@ def context_panel(rows: list[dict], as_of) -> str:
     regime = ((top.get("gates") or {}).get("regime", "—") if top else "—")
     kv = [("Anchor (WIB)", as_of.isoformat()), ("Data as of", data_date),
           ("Scored", f"{len(rows)}/{watch_n}"), ("Actionable", str(act)),
-          ("Top regime", regime)]
+          ("Top regime", regime_label(regime) if regime != "—" else "—")]
     body = "".join(f'<div class="bd-kvrow"><span>{k}</span><b>{v}</b></div>'
                    for k, v in kv)
     return f'<div class="bd-side"><div class="bd-side-h">Desk context</div>{body}</div>'
