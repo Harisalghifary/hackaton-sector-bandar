@@ -145,6 +145,7 @@ def test_force_refresh_scores_watchlist_from_cache(env):
     assert "TOP PICK" in text and ("BBRI" in text or "BMRI" in text)
     assert "WATCHLIST DELTAS" in text
     assert '<table class="bd-table"' in text             # themed deltas table rendered
+    assert "Score change (prior → now)" in text          # N: informative delta header
 
 
 def test_refresh_is_idempotent_and_reruns_keep_session(env):
@@ -307,8 +308,23 @@ def test_p4_context_panel_chip_and_p6_meter_style(env):
     assert "Scored" in text and "2/2" in text
     assert "last scored:" in text                                  # chip now has a time
     assert '<th style="width:10%">Ticker</th>' in text             # P4 compact columns
-    assert "<th>Δ</th>" in text or 'width:12%">Δ' in text          # pass-4 delta column
+    assert 'width:15%">Score change (prior → now)' in text        # N: delta column header
     assert "bd-same" in text or "bd-up" in text or "bd-down" in text
     assert "Action:" in text and "bd-pill blue" in text            # action line + bias badge
     assert "Below MA200 — bearish tape" in text                    # pass-5 human regime
     assert any(":material/sync:" in str(b.label) for b in at.button)
+
+
+def test_workings_validator_audit_lists_removed_figures(env, monkeypatch):
+    """O3: 'N figure(s) removed' is inspectable — Workings lists section, figures, item."""
+    import agent.executor as executor_mod
+    out = dict(MOCK_BRIEF, dropped_figures=[
+        {"section": "extracted", "item": "cumulative net buying Rp 12.3B",
+         "figures": ["12.3"]}])
+    monkeypatch.setattr(executor_mod, "run_agent", lambda q, ctx, **kw: out)
+    at = boot(env)
+    at.chat_input[0].set_value("whos accumulating BBRI?").run()
+    text = all_text(at)
+    assert "Validator audit" in text and "12.3" in text
+    assert "cumulative net buying" in text
+    assert "anti-fabrication trace validator" in text       # M2 warning wording

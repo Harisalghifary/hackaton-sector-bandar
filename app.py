@@ -760,7 +760,8 @@ def deltas_table(deltas: list[dict]) -> str:
                     f'<td class="bd-mono">{prior}</td></tr>')
     return ('<table class="bd-table"><thead><tr>'
             '<th style="width:10%">Ticker</th><th style="width:18%">Score</th>'
-            '<th style="width:12%">Δ</th><th style="width:22%">Decision</th>'
+            '<th style="width:15%">Score change (prior → now)</th>'
+            '<th style="width:19%">Decision</th>'
             '<th style="width:18%">Gate</th><th style="width:20%">Prior date</th>'
             f'</tr></thead><tbody>{"".join(rows)}</tbody></table>')
 
@@ -835,6 +836,15 @@ with st.expander("Show Workings (Audit Trail)", expanded=False):
                 st.caption(f"_intent reason:_ {_intent['reason'][:300]}")
         if agent_out.get("plan_degraded"):
             st.caption(f"_plan fallback (K):_ {agent_out['plan_degraded'][:300]}")
+        if agent_out.get("dropped_figures"):
+            # O3: make "N figure(s) removed" inspectable, not cryptic
+            st.markdown("**Validator audit (FR10)** — removed as unverifiable:")
+            for d in agent_out["dropped_figures"]:
+                figs = ", ".join(d.get("figures") or []) or "—"
+                line = f"- section `{d.get('section')}` · figures: {figs}"
+                if d.get("item"):
+                    line += f' · item: "{str(d["item"])[:140]}"'
+                st.markdown(line)
         for i, s in enumerate(agent_out.get("plan", {}).get("steps", []), 1):
             st.markdown(f"{i}. `{s['tool']}({json.dumps(s.get('args', {}))})` — {s.get('reason','')}")
         if agent_out.get("truncated"):

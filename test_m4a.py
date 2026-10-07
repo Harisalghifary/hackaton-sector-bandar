@@ -510,3 +510,27 @@ def test_deterministic_plan_caps_symbols_for_budget():
                               WATCHLIST)
     uniq = {s["args"]["symbol"] for s in plan["steps"] if "symbol" in s.get("args", {})}
     assert uniq == {"BBRI", "DSSA"}                            # budget-safe cap: 2 symbols
+
+
+def test_foreign_flow_summary_engine_aggregates(ctx):
+    """O1: engine computes signed window aggregates so synthesis can quote cumulative
+    flow without deriving arithmetic itself (FR10). Signs preserved: <0 = outflow."""
+    out = run_tool("get_foreign_flow", {"symbol": "PTBA"}, ctx)
+    assert out["ok"] is True
+    flow = out["data"]["flow"]
+    rows = flow if isinstance(flow, list) else (flow.get("data") or flow.get("results") or [])
+    s = out["data"]["summary"]
+    dated = sorted((r["date"], r["net_foreign_inflow"]) for r in rows
+                   if isinstance(r.get("net_foreign_inflow"), (int, float)))
+    vals = [v for _, v in dated]
+    assert s["net_total"] == sum(vals)
+    assert s["net_last_5d"] == sum(vals[-5:])
+    assert s["net_last_20d"] == sum(vals[-20:])
+    assert s["n_days"] == len(vals)
+    assert s["window_start"] == dated[0][0]
+    assert s["window_end"] == dated[-1][0]
+    assert s["inflow_days"] == sum(1 for v in vals if v > 0)
+    assert s["outflow_days"] == sum(1 for v in vals if v < 0)
+    assert s["bias"] == ("net inflow" if s["net_total"] > 0
+                         else "net outflow" if s["net_total"] < 0 else "balanced")
+    assert s["top_outflow_value"] < 0 < s["top_inflow_value"]   # signs are the info

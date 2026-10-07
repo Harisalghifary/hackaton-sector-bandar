@@ -160,6 +160,7 @@ def test_synthesis_prompt_carries_voice_rules_and_corpus(ctx):
     assert "2 sentences" in system and "NEVER print raw field names" in system
     assert "NO derived arithmetic" in system and "NO invented deltas" in system
     assert "unit aliases" in system                                # J: Rp 152.1B allowed
+    assert "Sign semantics" in system and "net_total" in system    # O2: inflow/outflow voice
     assert SYNTHESIS_SYSTEM == system
     assert "f1_macd" in user and "[cache]" in user                 # corpus embedded
 

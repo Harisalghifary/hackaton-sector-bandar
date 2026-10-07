@@ -64,8 +64,48 @@ def tool_get_fundamentals(args: dict, ctx: ToolContext) -> dict:
     return {"symbol": args["symbol"], "report": ctx.client.fundamentals(args["symbol"])}
 
 
+def _flow_summary(rows) -> dict:
+    """Deterministic engine aggregates over the fetched flow window (O1).
+
+    Signs are the information: net_foreign_inflow > 0 = foreign money ENTERING
+    the stock (accumulation pressure); < 0 = money LEAVING (outflow/distribution).
+    The engine computes these sums/counts here so synthesis can quote cumulative
+    figures without deriving arithmetic itself (FR10: every figure traces).
+    """
+    nets = sorted(
+        ((str(r.get("date")), r.get("net_foreign_inflow")) for r in rows or []
+         if isinstance(r, dict)
+         and isinstance(r.get("net_foreign_inflow"), (int, float))
+         and not isinstance(r.get("net_foreign_inflow"), bool)),
+        key=lambda t: t[0],
+    )
+    if not nets:
+        return {}
+    vals = [v for _, v in nets]
+    total = sum(vals)
+    inflow = [(d, v) for d, v in nets if v > 0]
+    outflow = [(d, v) for d, v in nets if v < 0]
+    summary = {
+        "window_start": nets[0][0], "window_end": nets[-1][0], "n_days": len(nets),
+        "net_total": total,                       # signed cumulative flow over window
+        "net_last_5d": sum(vals[-5:]),
+        "net_last_20d": sum(vals[-20:]),
+        "inflow_days": len(inflow),               # accumulation sessions
+        "outflow_days": len(outflow),             # distribution sessions
+        "bias": ("net inflow" if total > 0 else
+                 "net outflow" if total < 0 else "balanced"),
+    }
+    if inflow:
+        summary["top_inflow_day"], summary["top_inflow_value"] = max(inflow, key=lambda t: t[1])
+    if outflow:
+        summary["top_outflow_day"], summary["top_outflow_value"] = min(outflow, key=lambda t: t[1])
+    return summary
+
+
 def tool_get_foreign_flow(args: dict, ctx: ToolContext) -> dict:
-    return {"symbol": args["symbol"], "flow": ctx.client.foreign_flow(args["symbol"])}
+    flow = ctx.client.foreign_flow(args["symbol"])
+    rows = flow if isinstance(flow, list) else (flow or {}).get("data") or []
+    return {"symbol": args["symbol"], "flow": flow, "summary": _flow_summary(rows)}
 
 
 def tool_screen(args: dict, ctx: ToolContext) -> dict:
