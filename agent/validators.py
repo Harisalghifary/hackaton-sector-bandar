@@ -123,12 +123,20 @@ def validate_plan_or_raise(plan, watchlist: list[str]) -> dict:
 # ------------------------------------------------- numeric trace validator (FR10)
 # §8: "every figure in output must appear in tool-result trace; else dropped/flagged"
 # §14 non-negotiable: every output number traces to a tool result.
-# §8 voice: quote values exactly — no derived arithmetic, so no unit reformatting
-# (530B, 42%, 3.1k) is accepted unless that exact token appears in the corpus.
+# §8 voice: no derived arithmetic. Unit reformatting is allowed ONLY through the
+# deterministic M/B/T alias set below (computed from real corpus values), so a
+# human-readable "Rp 152.1B" still traces to 152110100000 in the tool results.
 
 
 def _canonical_number_forms(value) -> set[str]:
-    """All exact textual forms a JSON numeric value may be quoted as."""
+    """All exact textual forms a JSON numeric value may be quoted as.
+
+    Besides exact forms, large values (>= 1e6) also allow deterministic
+    unit-scaled aliases (M/B/T at 1-2 decimals) so synthesis can write
+    "Rp 152.1B" instead of 152110100000. Every alias is COMPUTED from a real
+    corpus value, so FR10 still holds: an allowed token always maps back to a
+    tool result — nothing can be invented through the alias set.
+    """
     forms: set[str] = set()
     if isinstance(value, bool):
         return forms
@@ -139,6 +147,13 @@ def _canonical_number_forms(value) -> set[str]:
         forms.add(repr(r))
         if r == int(r):
             forms.add(str(int(r)))       # 3120.0 quotable as "3120"
+    if isinstance(value, (int, float)):
+        for scale in (1_000_000, 1_000_000_000, 1_000_000_000_000):
+            if abs(value) >= scale:
+                for nd in (1, 2):
+                    s = round(value / scale, nd)
+                    forms.add(str(s))
+                    forms.add(f"{s:.{nd}f}")
     return forms
 
 

@@ -468,8 +468,10 @@ def do_refresh() -> None:
 
 def brief_markdown(out: dict) -> str:
     b = out["brief"]
-    lines = [f"# BANDAR brief — {b['symbol']} ({datetime.now(WIB).date().isoformat()} WIB)", "",
-             b["interpretation"], "", "**Extracted (engine figures):**"]
+    lines = [f"# BANDAR brief — {b['symbol']} ({datetime.now(WIB).date().isoformat()} WIB)", ""]
+    if out.get("question"):
+        lines += [f"> You asked: “{out['question']}”", ""]
+    lines += [b["interpretation"], "", "**Extracted (engine figures):**"]
     lines += [f"- {x}" for x in b["extracted"]]
     lines += ["", "**Action plan:**"] + [f"- {x}" for x in b["action_plan"]]
     lines += ["", "**Risk flags:**"] + [f"- {x}" for x in (b["risk_flags"] or ["none"])]
@@ -523,6 +525,7 @@ def do_ask(question: str) -> None:
             st.session_state["last_error"] = f"Sectors data failure: {exc}"
             return
     st.session_state["agent_out"] = out
+    out["question"] = question          # L: the Answer always shows what it replies to
     if out["type"] == "brief":
         st.session_state["brief_md"] = brief_markdown(out)
         scored = []
@@ -783,6 +786,9 @@ else:
 agent_out = st.session_state["agent_out"]
 if agent_out is not None:
     st.markdown(h2(IC_CHAT, "Answer"), unsafe_allow_html=True)
+    if agent_out.get("question"):
+        # L: tie the answer to the ask — reads as a reply, not a standalone report
+        st.caption(f"You asked: “{agent_out['question']}”")
     if agent_out["type"] == "brief":
         b = agent_out["brief"]
 
@@ -825,6 +831,8 @@ with st.expander("Show Workings (Audit Trail)", expanded=False):
             st.caption(_iline)
             if _intent.get("reason"):
                 st.caption(f"_intent reason:_ {_intent['reason'][:300]}")
+        if agent_out.get("plan_degraded"):
+            st.caption(f"_plan fallback (K):_ {agent_out['plan_degraded'][:300]}")
         for i, s in enumerate(agent_out.get("plan", {}).get("steps", []), 1):
             st.markdown(f"{i}. `{s['tool']}({json.dumps(s.get('args', {}))})` — {s.get('reason','')}")
         if agent_out.get("truncated"):

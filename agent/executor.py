@@ -15,7 +15,7 @@ from __future__ import annotations
 import json
 
 from agent.llm import LLMError, make_llm
-from agent.planner import LLMCallCounter, Planner
+from agent.planner import LLMCallCounter, Planner, deterministic_plan
 from agent.tools import ToolContext, run_tool
 from agent.validators import (PlanValidationError, collect_allowed_numbers,
                               validate_brief_numbers)
@@ -39,15 +39,35 @@ SYNTHESIS_SYSTEM = (
     "traders. Write ONLY from the tool results provided — the engine computed every "
     "figure; you compute NOTHING.\n"
     "Voice rules (LOCKED §8): desk-note tone; at most 2 sentences per section; "
-    "quote values EXACTLY as they appear in tool results (no unit reformatting like "
-    "'530B' or '42%', no rounding); NO derived arithmetic; NO invented deltas — a "
-    "delta may only compare figures present in the results/memory context.\n"
+    "NO derived arithmetic; NO invented deltas — a delta may only compare figures "
+    "present in the results/memory context.\n"
+    "Human language: NEVER print raw field names (no snake_case like net_foreign, "
+    "no_chase, extension_atr, f5_broker) — translate to trader language: "
+    "net_foreign -> 'net foreign buying/selling'; f5_broker -> 'smart-money "
+    "(broker/foreign) check'; f1_macd -> 'MACD trend'; f2_volume -> 'volume "
+    "confirmation'; f3_ad -> 'accumulation/distribution'; f4_ma_stack -> "
+    "'moving-average stack'; no_chase/extension_atr -> 'no-chase rule: price "
+    "closed too far above yesterday's high'.\n"
+    "Figures: quote values from the tool results; large rupiah amounts MAY be "
+    "rescaled into human units ('Rp 152.1B', 'Rp 850M') — the machine checker "
+    "knows these unit aliases. No other reformatting, no additional rounding, "
+    "no new figures.\n"
     "Every number you output is machine-checked against the tool results; "
     "unverifiable figures are dropped, so do not add any.\n"
     "If data is missing, truncated, or a step failed (budget_abort, not_found), "
     "say so honestly in risk_flags. symbol = the primary ticker of the answer "
     "(top pick for watchlist-wide runs). Output ONLY the submit_brief JSON."
 )
+
+# Human names for engine factor keys (used by the deterministic fallback brief
+# so it reads like a desk note, not a schema dump — same glossary as the prompt).
+_FACTOR_NAMES = {
+    "f1_macd": "MACD trend",
+    "f2_volume": "Volume confirmation",
+    "f3_ad": "Accumulation/distribution",
+    "f4_ma_stack": "Moving-average stack",
+    "f5_broker": "Smart-money (broker/foreign) check",
+}
 
 
 def _fallback(message: str, **extra) -> dict:
@@ -78,16 +98,17 @@ def _deterministic_brief(scored: list[dict], truncated: bool) -> dict | None:
     tp = top.get("trade_plan") or {}
     factors = top.get("factors") or {}
     extracted = []
-    for key in ("f1_macd", "f2_volume", "f3_ad", "f4_ma_stack", "f5_broker"):
+    for key, label in _FACTOR_NAMES.items():
         f = factors.get(key)
-        extracted.append(f"{key}: null (honest — not fabricated)" if f is None
-                         else f"{key}: {'pass' if f.get('pass') else 'fail'}")
+        extracted.append(f"{label}: no data (honest — not fabricated)" if f is None
+                         else f"{label}: {'confirmed' if f.get('pass') else 'not confirmed'}")
     ez = tp.get("entry_zone") or []
     no_chase = bool((gates.get("no_chase") or {}).get("triggered"))
     interpretation = (f"{top.get('symbol')} scores {top.get('score')}/"
                       f"{top.get('denominator')} — decision {dec.get('label')}. "
-                      + ("No-chase gate triggered; WAIT for pullback."
-                         if no_chase else "No-chase gate not triggered."))
+                      + ("The no-chase rule triggered (price closed too far above "
+                         "yesterday's high) — WAIT for a pullback instead of chasing."
+                         if no_chase else "The no-chase rule did not trigger."))
     action_plan = []
     if len(ez) > 1:
         action_plan.append(f"entry zone {ez[0]}-{ez[1]}")
@@ -99,7 +120,7 @@ def _deterministic_brief(scored: list[dict], truncated: bool) -> dict | None:
         action_plan.append(f"size {tp['lots']} lots")
     risk_flags = []
     if no_chase:
-        risk_flags.append("no-chase gate triggered — never chase")
+        risk_flags.append("no-chase rule triggered — never chase an extended price")
     if (gates.get("ara") or {}).get("triggered"):
         risk_flags.append("ARA limit-up block")
     if truncated:
@@ -145,14 +166,22 @@ def run_agent(question: str, ctx: ToolContext, llm=None, planner: Planner | None
         )
 
     # ---- LLM call 2/3: plan (code-validated; no repair loop — §3 max 3 calls) -
+    plan_degraded = ""
     try:
         plan = p.plan(question, intent=intent)
     except PlanValidationError as exc:
         return _fallback(f"Planner produced an invalid plan; rejected by validator: "
                          f"{exc.errors}", intent=intent, llm_calls=list(counter.used))
     except LLMError as exc:
-        return _fallback(f"Planner unavailable: {exc}", intent=intent,
-                         llm_calls=list(counter.used))
+        # K: deterministic plan fallback — the intent is known (often via the 0-LLM
+        # fast-path), so a hardcoded validator-safe plan still fetches real data
+        # during an outage; synthesis then degrades to the engine brief (E).
+        plan = deterministic_plan(intent, ctx.memory.load_watchlist(), question)
+        if plan is None:
+            return _fallback(f"Planner unavailable: {exc}", intent=intent,
+                             llm_calls=list(counter.used))
+        plan_degraded = (f"plan LLM unavailable ({exc}); used the deterministic "
+                         f"fallback plan for intent '{intent.get('intent')}'")
 
     # ---- deterministic execution (0 LLM) -------------------------------------
     step_results: list[dict] = []
@@ -204,11 +233,13 @@ def run_agent(question: str, ctx: ToolContext, llm=None, planner: Planner | None
         if det is not None:
             return {"type": "brief", "brief": det, "deterministic_fallback": True,
                     "dropped_figures": [], "intent": intent, "plan": plan,
+                    "plan_degraded": plan_degraded,
                     "tool_results": step_results, "truncated": truncated,
                     "llm_calls": list(counter.used),
                     "trace": ctx.client.trace_log[trace_start:],
                     "synthesis_error": str(exc)}
         return _fallback(f"Synthesis unavailable: {exc}", intent=intent, plan=plan,
+                         plan_degraded=plan_degraded,
                          tool_results=step_results, truncated=truncated,
                          llm_calls=list(counter.used),
                          trace=ctx.client.trace_log[trace_start:])
@@ -218,11 +249,13 @@ def run_agent(question: str, ctx: ToolContext, llm=None, planner: Planner | None
         if det is not None:
             return {"type": "brief", "brief": det, "deterministic_fallback": True,
                     "dropped_figures": [], "intent": intent, "plan": plan,
+                    "plan_degraded": plan_degraded,
                     "tool_results": step_results, "raw_brief": raw_brief,
                     "llm_calls": list(counter.used),
                     "trace": ctx.client.trace_log[trace_start:]}
         return _fallback("Synthesis returned a schema-invalid brief; nothing fabricated "
                          "in its place.", intent=intent, plan=plan,
+                         plan_degraded=plan_degraded,
                          tool_results=step_results, raw_brief=raw_brief,
                          llm_calls=list(counter.used),
                          trace=ctx.client.trace_log[trace_start:])
@@ -237,6 +270,7 @@ def run_agent(question: str, ctx: ToolContext, llm=None, planner: Planner | None
         "dropped_figures": dropped,           # honest audit trail for the workings pane
         "intent": intent,
         "plan": plan,
+        "plan_degraded": plan_degraded,       # K: non-empty when the plan LLM was down
         "tool_results": step_results,
         "memory_context": memory_context,
         "truncated": truncated,

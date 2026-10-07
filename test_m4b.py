@@ -157,8 +157,9 @@ def test_synthesis_prompt_carries_voice_rules_and_corpus(ctx):
     fake = FakeLLM([INTENT_SMART, PLAN_BBRI, CLEAN_BRIEF])
     run_agent("how is BBRI?", ctx, llm=fake)
     system, user = fake.calls[2]["system"], fake.calls[2]["user"]
-    assert "2 sentences" in system and "EXACTLY" in system
+    assert "2 sentences" in system and "NEVER print raw field names" in system
     assert "NO derived arithmetic" in system and "NO invented deltas" in system
+    assert "unit aliases" in system                                # J: Rp 152.1B allowed
     assert SYNTHESIS_SYSTEM == system
     assert "f1_macd" in user and "[cache]" in user                 # corpus embedded
 
@@ -266,3 +267,76 @@ def test_max_three_llm_calls_never_exceeded(ctx):
     out = run_agent("how is BBRI?", ctx, llm=fake)
     assert len(out["llm_calls"]) == 3
     assert len(fake.calls) == 3                                    # 4th response untouched
+
+
+# ------------------------------------------- J: human voice + unit aliases
+
+
+def test_unit_aliases_allowed_but_fabrication_still_dropped():
+    """Human units (Rp 152.1B) trace to the raw corpus value; invented ones still drop."""
+    corpus = [{"tool": "get_foreign_flow", "ok": True,
+               "data": {"net_foreign": 152110100000, "small": 42}}]
+    allowed = collect_allowed_numbers(corpus)
+    assert "152110100000" in allowed and "152.1" in allowed and "152.11" in allowed
+    assert "42" in allowed and "4.2" not in allowed           # <1e6 gets no aliases
+    brief = dict(CLEAN_BRIEF,
+                 extracted=["Foreigners were net buyers of Rp 152.1B",
+                            "inflated to Rp 999.9B"])
+    cleaned, dropped = validate_brief_numbers(brief, allowed)
+    assert cleaned["extracted"] == ["Foreigners were net buyers of Rp 152.1B"]
+    assert any("999.9" in d["figures"] for d in dropped)       # FR10 still bites
+
+
+def test_synthesis_prompt_forbids_snake_case_and_allows_units():
+    assert "snake_case" in SYNTHESIS_SYSTEM and "net foreign" in SYNTHESIS_SYSTEM
+    assert "Rp 152.1B" in SYNTHESIS_SYSTEM                     # unit aliases sanctioned
+
+
+def test_deterministic_brief_is_human_readable(ctx):
+    """Section E brief reads like a desk note: trader labels, no raw field names."""
+    fake = FakeLLM([INTENT_SMART, PLAN_BBRI, LLMError("gemini down")])
+    out = run_agent("how is BBRI?", ctx, llm=fake)
+    assert out["type"] == "brief" and out["deterministic_fallback"] is True
+    b = out["brief"]
+    text = " ".join(b["extracted"] + [b["interpretation"]] + b["risk_flags"])
+    for raw in ("f1_macd", "f2_volume", "f3_ad", "f4_ma_stack", "f5_broker", "no_chase"):
+        assert raw not in text, raw
+    assert "MACD trend" in text and "Smart-money" in text
+    assert any("confirmed" in x or "no data" in x for x in b["extracted"])
+
+
+# ------------------------------------------- K: deterministic plan fallback
+
+
+def test_plan_outage_uses_deterministic_plan_and_still_answers(ctx):
+    """Plan LLM timeout -> hardcoded plan for the intent -> tools run (0 LLM) ->
+    synthesis also down -> deterministic brief. The ask never dead-ends."""
+    fake = FakeLLM([INTENT_SMART,
+                    LLMError("transport failure: ReadTimeout"),   # plan call fails
+                    LLMError("transport failure: ReadTimeout")])  # synthesis fails too
+    out = run_agent("how is BBRI?", ctx, llm=fake)
+    assert out["type"] == "brief" and out["deterministic_fallback"] is True
+    assert out["plan"]["deterministic"] is True
+    assert "ReadTimeout" in out["plan_degraded"]
+    assert [s["tool"] for s in out["plan"]["steps"]] == ["score_history", "score_ticker"]
+    assert len(out["tool_results"]) == 2 and all(t["ok"] for t in out["tool_results"])
+    assert out["brief"]["symbol"] == "BBRI"
+    assert out["llm_calls"] == ["intent", "plan", "synthesis"]   # still <=3 (§3)
+
+
+def test_plan_outage_without_usable_intent_still_falls_back_honestly(ctx):
+    """No deterministic plan possible (symbol-less valuation intent) -> honest fallback."""
+    intent = {"intent": "valuation", "symbols": [], "question": "q"}
+    fake = FakeLLM([intent, LLMError("transport failure: ReadTimeout")])
+    out = run_agent("is it cheap?", ctx, llm=fake)
+    assert out["type"] == "fallback"
+    assert "Planner unavailable" in out["message"]
+
+
+def test_invalid_plan_does_not_use_deterministic_plan(ctx):
+    """PlanValidationError stays a validator fallback — the LLM plan named an
+    off-watchlist symbol, so silently re-planning would answer a different question."""
+    bad_plan = {"steps": [{"tool": "score_ticker", "args": {"symbol": "GOTO"}, "reason": "r"}]}
+    fake = FakeLLM([INTENT_SMART, bad_plan])
+    out = run_agent("how is GOTO?", ctx, llm=fake)
+    assert out["type"] == "fallback" and "not on the watchlist" in out["message"]

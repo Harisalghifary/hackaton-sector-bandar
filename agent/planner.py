@@ -18,6 +18,7 @@ from zoneinfo import ZoneInfo
 from agent.config import MAX_LLM_CALLS_PER_RUN, RUNTIME_LLM
 from agent.llm import LLMError
 from agent.validators import validate_plan_or_raise
+from client import _normalize_symbol
 
 WIB = ZoneInfo("Asia/Jakarta")
 
@@ -219,3 +220,44 @@ class Planner:
                                 schema=PLAN_SCHEMA, purpose="plan")
         watchlist = self.ctx.memory.load_watchlist()
         return validate_plan_or_raise(raw, watchlist)
+
+
+# ------------------------------------------------- deterministic plan fallback (K)
+
+def deterministic_plan(intent: dict, watchlist: list[str], question: str = "") -> dict | None:
+    """Hardcoded, validator-safe tool plan per intent — used ONLY when the plan
+    LLM call fails (transport/quota outage). The intent is already known (often
+    from the 0-LLM fast-path), so the run can still fetch real data and end in
+    the deterministic engine brief instead of an error. Returns None when no
+    sensible plan exists (e.g. per-symbol intent without a watchlist symbol)."""
+    name = (intent or {}).get("intent")
+    wl_norm = {_normalize_symbol(str(s)) for s in watchlist}
+    syms = [str(s).upper() for s in ((intent or {}).get("symbols") or [])
+            if _normalize_symbol(str(s)) in wl_norm][:2]      # budget-safe cap
+    steps: list[dict] = []
+    if name == "daily_brief":
+        steps = [{"tool": "rank_watchlist", "args": {},
+                  "reason": "deterministic fallback plan: rank the watchlist"}]
+    elif name == "score_ticker" and syms:
+        for s in syms:
+            steps.append({"tool": "score_history", "args": {"symbol": s},
+                          "reason": "policy 5: read history before scoring"})
+            steps.append({"tool": "score_ticker", "args": {"symbol": s},
+                          "reason": "deterministic fallback plan: current score/decision"})
+    elif name == "smart_money" and syms:
+        for s in syms:
+            steps.append({"tool": "get_foreign_flow", "args": {"symbol": s},
+                          "reason": "deterministic fallback plan: foreign flow (smart money)"})
+            steps.append({"tool": "score_ticker", "args": {"symbol": s},
+                          "reason": "deterministic fallback plan: broker factor via score"})
+    elif name == "valuation" and syms:
+        for s in syms:
+            steps.append({"tool": "get_fundamentals", "args": {"symbol": s},
+                          "reason": "deterministic fallback plan: fundamentals"})
+    elif name == "screen":
+        q = (question or "").strip() or "largest IDX stocks by market cap"
+        steps = [{"tool": "screen", "args": {"q": q},
+                  "reason": "deterministic fallback plan: universe screen"}]
+    if not steps:
+        return None
+    return validate_plan_or_raise({"steps": steps, "deterministic": True}, watchlist)

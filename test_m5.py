@@ -165,7 +165,7 @@ def test_ask_streams_brief_and_fills_session(env, monkeypatch):
 
     def fake_run_agent(question, ctx, **kw):
         calls.append(question)
-        return MOCK_BRIEF
+        return dict(MOCK_BRIEF)
 
     monkeypatch.setattr(executor_mod, "run_agent", fake_run_agent)
     at = boot(env)
@@ -173,11 +173,15 @@ def test_ask_streams_brief_and_fills_session(env, monkeypatch):
 
     assert calls == ["how is BBRI?"]                       # ask triggers the agent run
     assert at.session_state["agent_out"]["type"] == "brief"
+    assert at.session_state["agent_out"]["question"] == "how is BBRI?"    # L: context
     assert at.session_state["brief_md"].startswith("# BANDAR brief — BBRI")
+    assert "You asked" in at.session_state["brief_md"]     # download carries the question
     text = all_text(at)
     assert "No confluence while distribution persists." in text     # streamed (write_stream)
     assert "score 0/5, decision WAIT" in text
     assert "Answer" in text
+    assert any("You asked" in str(c.value) and "how is BBRI?" in str(c.value)
+               for c in at.caption)                        # answer tied to the question
     # download button now enabled with the brief
     downloads = at.get("download_button")
     assert not downloads[0].disabled

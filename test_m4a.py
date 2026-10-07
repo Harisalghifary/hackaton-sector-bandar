@@ -469,3 +469,44 @@ def test_network_timeout_becomes_graceful_fallback(ctx, monkeypatch):
     out = p.classify_intent("top pick today?")
     assert out["intent"] == "fallback"
     assert "transport failed" in out["reason"] and "ReadTimeout" in out["reason"]
+
+
+# ------------------------------------------- K: deterministic plan fallback
+
+
+def test_deterministic_plan_builders_pass_validator():
+    """Every intent gets a hardcoded, validator-safe plan (used when plan LLM is down)."""
+    from agent.planner import deterministic_plan
+    wl = ["BBRI", "DSSA"]
+    cases = [
+        ({"intent": "smart_money", "symbols": ["DSSA"]}, ["get_foreign_flow", "score_ticker"]),
+        ({"intent": "score_ticker", "symbols": ["bbri"]}, ["score_history", "score_ticker"]),
+        ({"intent": "daily_brief", "symbols": []}, ["rank_watchlist"]),
+        ({"intent": "valuation", "symbols": ["BBRI"]}, ["get_fundamentals"]),
+        ({"intent": "screen", "symbols": []}, ["screen"]),
+    ]
+    for intent, tools in cases:
+        plan = deterministic_plan(intent, wl, "which energy stocks are in play?")
+        assert plan is not None, intent
+        assert [s["tool"] for s in plan["steps"]] == tools
+        assert plan["deterministic"] is True
+        assert validate_plan(plan, wl) == []
+
+
+def test_deterministic_plan_refuses_when_unusable():
+    """No watchlist symbol for a per-symbol intent (or unknown intent) -> None,
+    so the executor keeps the honest 'Planner unavailable' fallback."""
+    from agent.planner import deterministic_plan
+    wl = ["BBRI"]
+    assert deterministic_plan({"intent": "smart_money", "symbols": ["GOTO"]}, wl) is None
+    assert deterministic_plan({"intent": "score_ticker", "symbols": []}, wl) is None
+    assert deterministic_plan({"intent": "fallback", "symbols": []}, wl) is None
+    assert deterministic_plan({}, wl) is None
+
+
+def test_deterministic_plan_caps_symbols_for_budget():
+    from agent.planner import deterministic_plan
+    plan = deterministic_plan({"intent": "smart_money", "symbols": ["BBRI", "DSSA", "ANTM"]},
+                              WATCHLIST)
+    uniq = {s["args"]["symbol"] for s in plan["steps"] if "symbol" in s.get("args", {})}
+    assert uniq == {"BBRI", "DSSA"}                            # budget-safe cap: 2 symbols
