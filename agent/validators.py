@@ -131,29 +131,41 @@ def validate_plan_or_raise(plan, watchlist: list[str]) -> dict:
 def _canonical_number_forms(value) -> set[str]:
     """All exact textual forms a JSON numeric value may be quoted as.
 
-    Besides exact forms, large values (>= 1e6) also allow deterministic
-    unit-scaled aliases (M/B/T at 1-2 decimals) so synthesis can write
-    "Rp 152.1B" instead of 152110100000. Every alias is COMPUTED from a real
-    corpus value, so FR10 still holds: an allowed token always maps back to a
-    tool result — nothing can be invented through the alias set.
+    Besides exact forms, large values (|v| >= 1e6) also allow deterministic
+    human-unit aliases (M/B/T, 1-2 decimals, integer form when |scaled| >= 10)
+    in BOTH signs, so synthesis may write "Rp 152.1B", "Rp 85B", or quote a
+    distribution day's magnitude as "Rp 85.4B" for -85432100000. The numeric
+    token regex strips signs, so unsigned forms must be allowed too. Every
+    alias is COMPUTED from a real corpus value, so FR10 still holds: an
+    allowed token always maps back to a tool result — nothing can be invented
+    through the alias set. Values below 1e6 get no aliases (keeps small
+    integers like scores/lots from leaking generic tokens such as "0.23").
     """
     forms: set[str] = set()
     if isinstance(value, bool):
         return forms
+
+    def add(text: str) -> None:
+        forms.add(text)
+        forms.add(text.lstrip("-"))      # NUM_TOKEN_RE strips the sign from tokens
+
     if isinstance(value, int):
-        forms.add(str(value))
+        add(str(value))
     elif isinstance(value, float):
         r = round(value, 4)
-        forms.add(repr(r))
+        add(repr(r))
         if r == int(r):
-            forms.add(str(int(r)))       # 3120.0 quotable as "3120"
-    if isinstance(value, (int, float)):
+            add(str(int(r)))             # 3120.0 quotable as "3120"
+    if isinstance(value, (int, float)) and abs(value) >= 1_000_000:
         for scale in (1_000_000, 1_000_000_000, 1_000_000_000_000):
-            if abs(value) >= scale:
-                for nd in (1, 2):
-                    s = round(value / scale, nd)
-                    forms.add(str(s))
-                    forms.add(f"{s:.{nd}f}")
+            s = value / scale
+            if not 0.1 <= abs(s) < 1000:     # natural range for that unit
+                continue
+            for nd in (1, 2):
+                add(str(round(s, nd)))
+                add(f"{s:.{nd}f}")
+            if abs(s) >= 10:
+                add(str(int(round(s))))      # "Rp 85B" style
     return forms
 
 

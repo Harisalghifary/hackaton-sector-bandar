@@ -340,3 +340,47 @@ def test_invalid_plan_does_not_use_deterministic_plan(ctx):
     fake = FakeLLM([INTENT_SMART, bad_plan])
     out = run_agent("how is GOTO?", ctx, llm=fake)
     assert out["type"] == "fallback" and "not on the watchlist" in out["message"]
+
+
+# ------------------------- M: sign-agnostic, natural-range unit aliases
+
+
+def test_negative_flows_quoted_by_magnitude_trace():
+    """Distribution days: -85432100000 must accept 'Rp 85.4B' (regex strips signs)."""
+    allowed = collect_allowed_numbers([{"data": {"net_foreign": -85432100000},
+                                        "score": 0, "denominator": 5}])
+    for tok in ("85432100000", "85.4", "85.43", "85"):
+        assert tok in allowed, tok
+    assert "0.09" not in allowed          # |scaled| < 0.1 is outside the natural range
+    brief = dict(CLEAN_BRIEF,
+                 extracted=["distribution day: net foreign selling of Rp 85.4B",
+                            "and Rp 85B on the prior session"])
+    cleaned, dropped = validate_brief_numbers(brief, allowed)
+    assert dropped == [] and len(cleaned["extracted"]) == 2
+
+
+def test_subunit_human_forms_trace():
+    """500000000 -> 'Rp 0.5B' / 'Rp 500M'; integer-M form allowed too."""
+    allowed = collect_allowed_numbers([{"data": {"net_foreign": 500000000},
+                                        "score": 0, "denominator": 5}])
+    for tok in ("0.5", "500.0", "500"):
+        assert tok in allowed, tok
+    brief = dict(CLEAN_BRIEF, extracted=["a Rp 0.5B inflow day"])
+    assert validate_brief_numbers(brief, allowed)[1] == []
+
+
+def test_small_values_get_no_aliases():
+    """Scores/lots/bars must not leak generic tokens like '0.23' into the allowed set."""
+    allowed = collect_allowed_numbers([{"bars": 234, "lots": 250, "score": 4}])
+    for tok in ("0.234", "0.23", "0.25", "0.004"):
+        assert tok not in allowed, tok
+
+
+def test_invented_units_still_dropped_after_M():
+    allowed = collect_allowed_numbers([{"data": {"net_foreign": -85432100000},
+                                        "score": 0, "denominator": 5}])
+    brief = dict(CLEAN_BRIEF, extracted=["inflated to Rp 999.9B", "or Rp 12.34B"])
+    cleaned, dropped = validate_brief_numbers(brief, allowed)
+    assert cleaned["extracted"] == []
+    assert len(dropped) == 2
+    assert {"999.9", "12.34"} <= {f for d in dropped for f in d["figures"]}

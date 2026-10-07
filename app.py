@@ -476,7 +476,8 @@ def brief_markdown(out: dict) -> str:
     lines += ["", "**Action plan:**"] + [f"- {x}" for x in b["action_plan"]]
     lines += ["", "**Risk flags:**"] + [f"- {x}" for x in (b["risk_flags"] or ["none"])]
     if out.get("dropped_figures"):
-        lines += ["", f"_Validator dropped {len(out['dropped_figures'])} unverifiable figure(s)._"]
+        lines += ["", f"_Validator removed {len(out['dropped_figures'])} unverifiable "
+                       "figure(s) (FR10 anti-fabrication)._"]
     stt = budget.status()
     lines += ["", f"_Sectors credits used: {stt['total_spent']}/1000 · LLM calls: {out.get('llm_calls')}_"]
     return "\n".join(lines)
@@ -804,8 +805,9 @@ if agent_out is not None:
                 for x in b["risk_flags"]:
                     yield f"- {x}\n"
             if agent_out.get("dropped_figures"):
-                yield (f"\n_⚠️ {len(agent_out['dropped_figures'])} figure(s) dropped by the "
-                       "numeric trace validator (unverifiable)._\n")
+                yield (f"\n_⚠️ {len(agent_out['dropped_figures'])} figure(s) removed by the "
+                       "anti-fabrication trace validator — Bandar only quotes "
+                       "engine-computed figures (FR10)._\n")
 
         st.write_stream(_stream)
         if agent_out.get("deterministic_fallback"):
