@@ -35,6 +35,12 @@ MODEL_IDS = {
     "claude-sonnet-4.5": "claude-sonnet-4-5",
 }
 
+# Automatic degrade chain for Gemini (transport-layer only; RUNTIME_LLM stays LOCKED).
+# Gemini quotas are PER-MODEL, so when the primary model's quota/rate limit is hit we
+# degrade to a cheaper/less-contended model rather than failing the whole run.
+# Verified present via ListModels on this key (2026-10-07).
+GEMINI_DEGRADE = ["gemini-3.5-flash-lite", "gemini-flash-latest"]
+
 
 def resolve_model(spec_name: str) -> str:
     """Spec name -> provider API id; unknown names pass through unchanged."""
@@ -97,14 +103,27 @@ class GeminiLLM:
             "contents": [{"role": "user", "parts": [{"text": user}]}],
             "generationConfig": generation_config,
         }
-        resp = _post_with_retry(
-            GEMINI_URL.format(model=self.model_id),
-            headers={"x-goog-api-key": self.api_key, "Content-Type": "application/json"},
-            body=body, timeout=self.timeout,
-        )
-        if resp.status_code != 200:
-            raise LLMError(f"gemini HTTP {resp.status_code} ({purpose}): {resp.text[:300]}")
-        return _parse_gemini(resp.json(), purpose)
+        models = [self.model_id] + [m for m in GEMINI_DEGRADE if m != self.model_id]
+        last: LLMError | None = None
+        for model in models:
+            resp = _post_with_retry(
+                GEMINI_URL.format(model=model),
+                headers={"x-goog-api-key": self.api_key, "Content-Type": "application/json"},
+                body=body, timeout=self.timeout,
+            )
+            if resp.status_code == 200:
+                try:
+                    return _parse_gemini(resp.json(), purpose)
+                except LLMError as exc:                 # parse failure -> try next model
+                    last = exc
+                    continue
+            last = LLMError(f"gemini HTTP {resp.status_code} ({purpose}) [{model}]: "
+                            f"{resp.text[:300]}")
+            # Degrade only on quota/rate/unavailable/not-found. Auth or bad-request
+            # (400/401/403) will fail on every model, so raise immediately.
+            if resp.status_code not in (429, 500, 502, 503, 404):
+                raise last
+        raise last
 
 
 class ClaudeLLM:
