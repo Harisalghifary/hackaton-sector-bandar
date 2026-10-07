@@ -13,10 +13,7 @@ act-on-able brief: entry, close-based stop, 0.5%-risk position size, and what ch
 ![Tests](https://img.shields.io/badge/tests-M1--M6%20passing-brightgreen)
 ![License](https://img.shields.io/badge/license-MIT-lightgrey)
 
-<!-- HERO IMAGE: replace the line below with a screenshot/GIF of the running app.
-     Generate one credit-free with:  BANDAR_AS_OF=2026-10-06 python dev_screenshot.py
-     Then:  ![Bandar app](docs/hero.png)  -->
-<!-- ![Bandar app](docs/hero.png) -->
+![Bandar — credit meter, TOP PICK card, desk context and watchlist deltas (dark theme)](docs/hero.png)
 
 </div>
 
