@@ -44,7 +44,9 @@ def resolve_model(spec_name: str) -> str:
 # Transient-failure retry: a 429/5xx transport attempt never produced a completion,
 # so retrying does not consume a §3 "LLM call" slot. Bounded: 3 POSTs max per call.
 RETRY_STATUSES = (429, 500, 502, 503)
-RETRY_WAITS = [0, 4, 12]
+# Longer backoff so a transient 503 "high demand" spike can clear before we give up.
+# These retries never produced a completion, so they do NOT consume a §3 LLM-call slot.
+RETRY_WAITS = [0, 5, 15, 30]
 
 
 def _post_with_retry(url: str, headers: dict, body: dict, timeout: float):

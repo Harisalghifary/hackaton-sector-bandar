@@ -293,9 +293,16 @@ def test_planner_invalid_plan_raises_without_repair(ctx):
 
 
 def test_intent_classification_and_graceful_fallback(ctx):
-    fake = FakeLLM([{"intent": "smart_money", "symbols": ["BMRI"], "question": "who is accumulating BMRI?"}])
+    fake = FakeLLM([{"intent": "smart_money", "symbols": ["BMRI"], "question": "q"}])
     p = Planner(fake, ctx)
+    # deterministic fast-path: watchlist symbol + smart-money vocab -> 0 LLM calls
     out = p.classify_intent("who is accumulating BMRI?")
+    assert out["intent"] == "smart_money" and out["symbols"] == ["BMRI"]
+    assert out.get("hint") == "deterministic-fast-path"
+    assert fake.calls == []                      # fast path must not spend an LLM call
+
+    # non-fast-path question (no symbol) still routes through the LLM intent router
+    out = p.classify_intent("who's accumulating in the market today?")
     assert out["intent"] == "smart_money" and out["symbols"] == ["BMRI"]
     assert fake.calls[0]["schema"] == INTENT_SCHEMA
 

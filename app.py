@@ -139,14 +139,21 @@ section[data-testid="stApp"], [data-testid="stAppScrollToBottomContainer"] {
 [data-testid="stDeployButton"] button, [data-testid="stDeployButton"] p,
 [data-testid="stMainMenu"] button { color: @muted@ !important; }
 [data-testid="stMainMenu"] svg { fill: @muted@; }
-[data-testid="stChatInput"] { background: transparent; }
-[data-testid="stChatInput"] > div { background: transparent !important; }
-[data-testid="stChatInputTextArea"] { background: @panel@ !important;
-  color: @text@ !important; border: 1px solid @border@ !important;
-  border-radius: 12px; }
+/* One cohesive input pill: the container is the border; textarea + send button sit
+   inside it transparently. Single brand-colored focus ring via :focus-within (no
+   double red+blue border, no detached arrow). */
+[data-testid="stChatInput"] { background: @panel@; border: 1px solid @border@;
+  border-radius: 12px; padding: 4px 6px 4px 14px;
+  display: flex; align-items: center; gap: 6px; }
+[data-testid="stChatInput"]:focus-within { border-color: @accent@;
+  box-shadow: 0 0 0 3px @glow@; }
+[data-testid="stChatInput"] > div { background: transparent !important; flex: 1; }
+[data-testid="stChatInputTextArea"] { background: transparent !important;
+  color: @text@ !important; border: none !important; box-shadow: none !important;
+  outline: none !important; }
 [data-testid="stChatInputTextArea"]::placeholder { color: @muted@; }
-[data-testid="stChatInput"] button { background: @panel@ !important;
-  color: @text@ !important; border: 1px solid @border@ !important; }
+[data-testid="stChatInput"] button { background: transparent !important;
+  color: @text@ !important; border: none !important; }
 
 /* ---- bandar components ---- */
 .bd-card { background: linear-gradient(135deg, @panel@ 0%, @highlight@ 100%);
@@ -231,8 +238,7 @@ section[data-testid="stApp"], [data-testid="stAppScrollToBottomContainer"] {
   transform .15s ease, color .15s ease; }
 .bd-card:hover { border-color: @accent@; transform: translateY(-1px); }
 [data-testid="stButton"] button:focus-visible,
-[data-testid="stDownloadButton"] button:focus-visible,
-[data-testid="stChatInputTextArea"]:focus-visible {
+[data-testid="stDownloadButton"] button:focus-visible {
   outline: 2px solid @accent@; outline-offset: 2px; }
 @media (prefers-reduced-motion: reduce) {
   .bd-card, [data-testid="stButton"] button,
@@ -709,6 +715,16 @@ with st.expander("Show Workings (Audit Trail)", expanded=False):
     if agent_out:
         st.markdown("**Agent plan** (LLM calls: "
                     f"{', '.join(agent_out.get('llm_calls', [])) or '—'})")
+        _intent = agent_out.get("intent") or {}
+        if _intent:
+            _iline = f"**Intent:** `{_intent.get('intent')}`"
+            if _intent.get("symbols"):
+                _iline += f" · symbols: {', '.join(_intent['symbols'])}"
+            if _intent.get("hint"):
+                _iline += " · deterministic fast-path (0 LLM)"
+            st.caption(_iline)
+            if _intent.get("reason"):
+                st.caption(f"_intent reason:_ {_intent['reason'][:300]}")
         for i, s in enumerate(agent_out.get("plan", {}).get("steps", []), 1):
             st.markdown(f"{i}. `{s['tool']}({json.dumps(s.get('args', {}))})` — {s.get('reason','')}")
         if agent_out.get("truncated"):

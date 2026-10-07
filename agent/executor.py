@@ -76,12 +76,21 @@ def run_agent(question: str, ctx: ToolContext, llm=None, planner: Planner | None
     # ---- LLM call 1/3: intent ------------------------------------------------
     intent = p.classify_intent(question)
     if intent.get("intent") == "fallback":
-        reason = intent.get("reason", "out-of-scope request")
+        reason = intent.get("reason", "")
+        # A "reason" means the intent call FAILED (transport/parse), not that the user
+        # asked out-of-scope. Report it as a retry-able outage, not a scope refusal (FR12).
+        if reason:
+            return _fallback(
+                "Bandar's model is busy or unreachable right now (temporary overload) — "
+                "your question looked in-scope but the intent call could not complete. "
+                "Please try again in a moment.",
+                intent=intent, reason=reason, llm_calls=list(counter.used), outage=True,
+            )
         return _fallback(
             "Outside Bandar's scope: I plan and analyze IDX watchlist setups, and I "
             "never execute trades. Ask about scores, smart money, valuation, deltas, "
             "or the universe screen.",
-            intent=intent, reason=reason, llm_calls=list(counter.used),
+            intent=intent, reason="out-of-scope request", llm_calls=list(counter.used),
         )
 
     # ---- LLM call 2/3: plan (code-validated; no repair loop — §3 max 3 calls) -

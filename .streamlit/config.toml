@@ -1,0 +1,10 @@
+# Streamlit theme — aligns Streamlit-native chrome (focus rings, widgets) with the
+# Bandar brand. Without this, Streamlit's default primaryColor (#ff4b4b red) leaks
+# into focus rings (e.g. the chat-input container), clashing with the custom CSS.
+[theme]
+base = "dark"
+primaryColor = "#3b82f6"
+backgroundColor = "#0f0f1a"
+secondaryBackgroundColor = "#1a1a2e"
+textColor = "#ffffff"
+font = "sans serif"

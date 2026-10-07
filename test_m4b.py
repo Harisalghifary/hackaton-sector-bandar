@@ -227,7 +227,8 @@ def test_budget_abort_truncation_narrated(tmp_path):
              "interpretation": "Data collection was cut short by the run budget.",
              "action_plan": [], "risk_flags": ["run budget exhausted; results truncated"]}
     fake = FakeLLM([INTENT_SMART, plan, clean])
-    out = run_agent("flow on BBRI?", ctx2, llm=fake)
+    # no watchlist symbol in the question -> exercises the LLM intent path (not fast-path)
+    out = run_agent("flow picture for the tape today?", ctx2, llm=fake)
 
     assert out["truncated"] is True
     assert out["tool_results"][0]["error"] == "budget_abort"

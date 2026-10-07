@@ -11,6 +11,7 @@ Flagged for user confirmation before the M7 video gate.
 
 from __future__ import annotations
 
+import re
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
@@ -21,6 +22,13 @@ from agent.validators import validate_plan_or_raise
 WIB = ZoneInfo("Asia/Jakarta")
 
 INTENTS = ("daily_brief", "score_ticker", "smart_money", "valuation", "screen", "fallback")
+
+# Deterministic smart-money fast-path (§8 hardening). If the question names a watchlist
+# symbol AND uses smart-money vocabulary, route to smart_money WITHOUT an LLM call. This
+# makes routing immune to transient model overload (503) and to LLM mis-classification,
+# and saves an intent call. Non-matching questions still use the LLM intent router.
+SMART_MONEY_RE = re.compile(
+    r"accumulat|akumulasi|distribusi|broker|foreign|flow|smart\s*money|bandar", re.I)
 
 INTENT_SCHEMA = {
     "type": "object",
@@ -150,8 +158,25 @@ class Planner:
 
     # ------------------------------------------------------------------ calls
 
+    def _hint_smart_money(self, question: str) -> dict | None:
+        """Deterministic smart-money fast-path (no LLM). Returns an intent dict or None."""
+        try:
+            watchlist = [str(s).upper() for s in
+                         (self.ctx.memory.load_watchlist() if self.ctx else [])]
+        except Exception:                                    # noqa: BLE001 - never block routing
+            watchlist = []
+        up = question.upper()
+        syms = [s for s in watchlist if s and s in up]
+        if syms and SMART_MONEY_RE.search(question):
+            return {"intent": "smart_money", "symbols": syms, "question": question,
+                    "hint": "deterministic-fast-path"}
+        return None
+
     def classify_intent(self, question: str) -> dict:
         """LLM call 1/3: classify free text into one of the 5 intents (+fallback)."""
+        hint = self._hint_smart_money(question)
+        if hint is not None:
+            return hint
         self.calls.tick("intent")
         system = (
             "You are the intent router for Bandar (IDX swing-trading analyst). "
