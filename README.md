@@ -104,6 +104,30 @@ and whole IDX lots at valid tick sizes.
 - **Theme toggle** — dark "terminal" default (camera-safe) + light alternate.
 - **Explicit-action API calls** — nothing hits the network unless you press a button or submit an ask.
 
+## What Bandar Can (and Can't) Answer
+
+The free-text assistant routes every question into one of **five intents** — and politely refuses
+everything else.
+
+| Intent | What it answers | Example |
+|---|---|---|
+| **daily_brief** | Rankings, top pick, watchlist overview, what changed | "top pick today?" |
+| **score_ticker** | Price/TA/confluence/decision for a watchlist symbol | "is BBRI a buy?" |
+| **smart_money** | Broker activity, foreign flow, accumulation/distribution | "who's accumulating DSSA?" |
+| **valuation** | Fundamentals / financials / valuation of a symbol | "is BBCA cheap?" |
+| **screen** | The wider IDX universe beyond the watchlist | "which stocks have heavy foreign buy?" |
+
+**Caveats:** data is **daily end-of-day (as-of dated)** — pre-market, not live intraday ticks.
+Bandar only quotes figures present in tool results (trace-validated) and scores are
+watchlist-scoped.
+
+**Won't do:** trade execution or order placement (never, FR9) · price predictions or guarantees ·
+personal-finance/portfolio/tax advice · non-IDX instruments · news/sentiment/order-book depth ·
+chit-chat.
+
+**On failure:** if the LLM is unavailable (quota/overload), Bandar falls back to a **deterministic
+engine-built brief** or an honest outage message — it never fabricates an answer.
+
 ## Quickstart
 
 ```bash

@@ -60,6 +60,7 @@ PALETTES = {
                  cardborder="#0f3460", text="#ffffff", muted="#888888",
                  border="#2b2b45", green="#4ade80", amber="#fbbf24",
                  red="#f87171", accent="#3b82f6", accent2="#6366f1", on_accent="#ffffff",
+                 btn_bg="#1a1a2e", btn_border="#3a3a5c",
                  glow="rgba(59,130,246,0.35)", markfill="#1a1a2e", markstroke="#0f3460",
                  rowhover="rgba(255,255,255,0.05)", green_bg="rgba(74,222,128,0.14)",
                  amber_bg="rgba(251,191,36,0.14)", red_bg="rgba(248,113,113,0.14)",
@@ -68,6 +69,7 @@ PALETTES = {
                   cardborder="#b6c2cf", text="#1f2328", muted="#57606a",
                   border="#d0d7de", green="#1a7f37", amber="#9a6700",
                   red="#cf222e", accent="#0969da", accent2="#4f46e5", on_accent="#ffffff",
+                   btn_bg="#ffffff", btn_border="#9aa4b2",
                   glow="rgba(9,105,218,0.18)", markfill="#eaeef2", markstroke="#94a3b8",
                   rowhover="rgba(31,35,40,0.04)", green_bg="rgba(26,127,55,0.10)",
                   amber_bg="rgba(154,103,0,0.10)", red_bg="rgba(207,34,46,0.10)",
@@ -101,10 +103,14 @@ section[data-testid="stApp"], [data-testid="stAppScrollToBottomContainer"] {
 
 /* buttons */
 [data-testid="stButton"] button, [data-testid="stDownloadButton"] button {
-  background: @panel@; color: @text@; border: 1px solid @border@;
-  border-radius: 10px; font-weight: 600; }
+  background: @btn_bg@; color: @text@; border: 1px solid @btn_border@;
+  border-radius: 10px; font-weight: 600; box-shadow: 0 1px 2px rgba(0,0,0,.06); }
 [data-testid="stButton"] button:hover, [data-testid="stDownloadButton"] button:hover {
   border-color: @accent@; color: @accent@; }
+/* disabled reads clearly as "off", not invisible ghost text */
+[data-testid="stButton"] button:disabled, [data-testid="stDownloadButton"] button:disabled {
+  background: @btn_bg@; color: @muted@; border: 1px dashed @btn_border@;
+  box-shadow: none; }
 [data-testid="stBaseButton-primary"] {
   background: linear-gradient(135deg, @accent@ 0%, @accent2@ 100%) !important;
   border-color: @accent@ !important; color: @on_accent@ !important;
@@ -283,6 +289,9 @@ section[data-testid="stApp"], [data-testid="stAppScrollToBottomContainer"] {
   color: @muted@; margin-bottom: 10px; }
 .bd-side-sum { margin-top: 12px; padding-top: 10px; border-top: 1px dashed @border@;
   color: @muted@; font-size: .82rem; line-height: 1.4; }
+.bd-empty { background: @panel@; border: 1px dashed @border@; border-radius: 12px;
+  padding: 12px 16px; color: @muted@; font-size: .88rem; line-height: 1.5; }
+.bd-empty b { color: @text@; }
 .bd-kvrow { display: flex; justify-content: space-between; gap: 12px;
   padding: 7px 0; border-bottom: 1px dashed @border@; font-size: .85rem; }
 .bd-kvrow:last-child { border-bottom: none; }
@@ -757,7 +766,16 @@ deltas = st.session_state["deltas"]
 if deltas:
     st.markdown(deltas_table(deltas), unsafe_allow_html=True)
 else:
-    st.caption("Deltas appear after a refresh or an ask that scores tickers (old→new + prior date).")
+    _last = max((r["as_of"] for s in memory.load_watchlist()
+                 if (r := memory.latest(s))), default=None)
+    if _last:
+        st.markdown(f'<div class="bd-empty">Last stored snapshot: <b>{_last}</b>. Press '
+                    "<b>Force Live Refresh</b> to load today's deltas vs that date.</div>",
+                    unsafe_allow_html=True)
+    else:
+        st.markdown('<div class="bd-empty">No snapshots yet — your first refresh creates the '
+                    'baseline; deltas appear from the second run.</div>',
+                    unsafe_allow_html=True)
 
 
 # ------------------------------------------------------------------ brief answer
