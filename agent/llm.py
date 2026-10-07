@@ -49,6 +49,12 @@ RETRY_STATUSES = (429, 500, 502, 503)
 RETRY_WAITS = [0, 5, 15, 30]
 
 
+def _is_quota(resp) -> bool:
+    """A 429 that is a hard quota/billing limit (not transient rate-limit)."""
+    return resp is not None and resp.status_code == 429 \
+        and "quota" in (resp.text or "").lower()
+
+
 def _post_with_retry(url: str, headers: dict, body: dict, timeout: float):
     resp = None
     for wait in RETRY_WAITS:
@@ -57,6 +63,8 @@ def _post_with_retry(url: str, headers: dict, body: dict, timeout: float):
         resp = requests.post(url, headers=headers, json=body, timeout=timeout)
         if resp.status_code not in RETRY_STATUSES:
             return resp
+        if _is_quota(resp):
+            return resp          # quota/billing limit: retrying cannot help — fail fast
     return resp
 
 

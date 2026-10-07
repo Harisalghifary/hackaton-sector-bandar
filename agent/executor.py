@@ -80,10 +80,17 @@ def run_agent(question: str, ctx: ToolContext, llm=None, planner: Planner | None
         # A "reason" means the intent call FAILED (transport/parse), not that the user
         # asked out-of-scope. Report it as a retry-able outage, not a scope refusal (FR12).
         if reason:
+            if "quota" in reason.lower():
+                msg = ("Bandar's LLM quota is exhausted (HTTP 429 quota/billing). "
+                       "Scoring and refresh still work (deterministic), but free-text "
+                       "answers need quota to reset, billing to be enabled, or a "
+                       "different API key.")
+            else:
+                msg = ("Bandar's model is busy or unreachable right now (temporary "
+                       "overload) — your question looked in-scope but the intent call "
+                       "could not complete. Please try again in a moment.")
             return _fallback(
-                "Bandar's model is busy or unreachable right now (temporary overload) — "
-                "your question looked in-scope but the intent call could not complete. "
-                "Please try again in a moment.",
+                msg,
                 intent=intent, reason=reason, llm_calls=list(counter.used), outage=True,
             )
         return _fallback(
