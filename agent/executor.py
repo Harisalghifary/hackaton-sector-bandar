@@ -66,6 +66,50 @@ def _valid_brief_shape(raw) -> bool:
     return True
 
 
+def _deterministic_brief(scored: list[dict], truncated: bool) -> dict | None:
+    """Engine-built submit_brief-shaped fallback (FR10-safe: every figure is copied
+    verbatim from a tool result; nothing computed or invented). Used when LLM
+    synthesis is unavailable so the Answer never shows a bare error."""
+    if not scored:
+        return None
+    top = max(scored, key=lambda r: (r.get("score") or 0))
+    dec = top.get("decision") or {}
+    gates = top.get("gates") or {}
+    tp = top.get("trade_plan") or {}
+    factors = top.get("factors") or {}
+    extracted = []
+    for key in ("f1_macd", "f2_volume", "f3_ad", "f4_ma_stack", "f5_broker"):
+        f = factors.get(key)
+        extracted.append(f"{key}: null (honest — not fabricated)" if f is None
+                         else f"{key}: {'pass' if f.get('pass') else 'fail'}")
+    ez = tp.get("entry_zone") or []
+    no_chase = bool((gates.get("no_chase") or {}).get("triggered"))
+    interpretation = (f"{top.get('symbol')} scores {top.get('score')}/"
+                      f"{top.get('denominator')} — decision {dec.get('label')}. "
+                      + ("No-chase gate triggered; WAIT for pullback."
+                         if no_chase else "No-chase gate not triggered."))
+    action_plan = []
+    if len(ez) > 1:
+        action_plan.append(f"entry zone {ez[0]}-{ez[1]}")
+    elif ez:
+        action_plan.append(f"entry {ez[0]}")
+    if tp.get("stop_close") is not None:
+        action_plan.append(f"close-based stop {tp['stop_close']}")
+    if tp.get("lots") is not None:
+        action_plan.append(f"size {tp['lots']} lots")
+    risk_flags = []
+    if no_chase:
+        risk_flags.append("no-chase gate triggered — never chase")
+    if (gates.get("ara") or {}).get("triggered"):
+        risk_flags.append("ARA limit-up block")
+    if truncated:
+        risk_flags.append("run truncated by budget")
+    risk_flags.append("LLM narration unavailable — deterministic engine summary")
+    return {"symbol": top.get("symbol"), "extracted": extracted,
+            "interpretation": interpretation, "action_plan": action_plan,
+            "risk_flags": risk_flags}
+
+
 def run_agent(question: str, ctx: ToolContext, llm=None, planner: Planner | None = None) -> dict:
     """One full run. Returns {"type": "brief", ...} or {"type": "fallback", ...}."""
     llm = llm or make_llm("primary")
@@ -156,12 +200,27 @@ def run_agent(question: str, ctx: ToolContext, llm=None, planner: Planner | None
         raw_brief = llm.complete(system=SYNTHESIS_SYSTEM, user=user,
                                  schema=SUBMIT_BRIEF_SCHEMA, purpose="synthesis")
     except LLMError as exc:
+        det = _deterministic_brief(scored, truncated)
+        if det is not None:
+            return {"type": "brief", "brief": det, "deterministic_fallback": True,
+                    "dropped_figures": [], "intent": intent, "plan": plan,
+                    "tool_results": step_results, "truncated": truncated,
+                    "llm_calls": list(counter.used),
+                    "trace": ctx.client.trace_log[trace_start:],
+                    "synthesis_error": str(exc)}
         return _fallback(f"Synthesis unavailable: {exc}", intent=intent, plan=plan,
                          tool_results=step_results, truncated=truncated,
                          llm_calls=list(counter.used),
                          trace=ctx.client.trace_log[trace_start:])
 
     if not _valid_brief_shape(raw_brief):
+        det = _deterministic_brief(scored, truncated)
+        if det is not None:
+            return {"type": "brief", "brief": det, "deterministic_fallback": True,
+                    "dropped_figures": [], "intent": intent, "plan": plan,
+                    "tool_results": step_results, "raw_brief": raw_brief,
+                    "llm_calls": list(counter.used),
+                    "trace": ctx.client.trace_log[trace_start:]}
         return _fallback("Synthesis returned a schema-invalid brief; nothing fabricated "
                          "in its place.", intent=intent, plan=plan,
                          tool_results=step_results, raw_brief=raw_brief,

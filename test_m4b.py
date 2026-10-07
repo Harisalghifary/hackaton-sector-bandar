@@ -194,20 +194,22 @@ def test_invalid_plan_becomes_fallback(ctx):
     assert out["llm_calls"] == ["intent", "plan"]                  # NO synthesis, no repair
 
 
-def test_synthesis_error_becomes_fallback_with_data_kept(ctx):
+def test_synthesis_error_becomes_deterministic_fallback(ctx):
     fake = FakeLLM([INTENT_SMART, PLAN_BBRI, LLMError("gemini HTTP 500 (synthesis)")])
     out = run_agent("how is BBRI?", ctx, llm=fake)
-    assert out["type"] == "fallback" and "Synthesis unavailable" in out["message"]
+    # synthesis down -> engine-built brief, never a bare error (section E)
+    assert out["type"] == "brief" and out["deterministic_fallback"] is True
+    assert out["brief"]["symbol"] == "BBRI"
+    assert "gemini HTTP 500" in out["synthesis_error"]
     assert len(out["tool_results"]) == 2                           # honest: data still shown
     assert out["llm_calls"] == ["intent", "plan", "synthesis"]
 
 
-def test_schema_invalid_brief_becomes_fallback(ctx):
+def test_schema_invalid_brief_becomes_deterministic_fallback(ctx):
     broken = {"symbol": "BBRI", "extracted": [], "action_plan": [], "risk_flags": []}
     fake = FakeLLM([INTENT_SMART, PLAN_BBRI, broken])              # interpretation missing
     out = run_agent("how is BBRI?", ctx, llm=fake)
-    assert out["type"] == "fallback"
-    assert "schema-invalid" in out["message"]
+    assert out["type"] == "brief" and out["deterministic_fallback"] is True
     assert out["raw_brief"] == broken                              # never silently patched
 
 

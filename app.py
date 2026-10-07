@@ -281,6 +281,8 @@ section[data-testid="stApp"], [data-testid="stAppScrollToBottomContainer"] {
 .bd-card, .bd-side { flex: 1; }
 .bd-side-h { font-size: .72rem; text-transform: uppercase; letter-spacing: .08em;
   color: @muted@; margin-bottom: 10px; }
+.bd-side-sum { margin-top: 12px; padding-top: 10px; border-top: 1px dashed @border@;
+  color: @muted@; font-size: .82rem; line-height: 1.4; }
 .bd-kvrow { display: flex; justify-content: space-between; gap: 12px;
   padding: 7px 0; border-bottom: 1px dashed @border@; font-size: .85rem; }
 .bd-kvrow:last-child { border-bottom: none; }
@@ -451,6 +453,7 @@ def do_refresh() -> None:
     results = out["data"]["ranked"]
     st.session_state["scores"] = results
     st.session_state["deltas"] = memory.record_run(results)   # D7 upsert + FR6 deltas
+    st.session_state["brief_md"] = refresh_brief_markdown(results)   # Download works post-refresh
     st.session_state["last_error"] = ""
 
 
@@ -465,6 +468,39 @@ def brief_markdown(out: dict) -> str:
         lines += ["", f"_Validator dropped {len(out['dropped_figures'])} unverifiable figure(s)._"]
     stt = budget.status()
     lines += ["", f"_Sectors credits used: {stt['total_spent']}/1000 · LLM calls: {out.get('llm_calls')}_"]
+    return "\n".join(lines)
+
+
+def refresh_brief_markdown(results: list[dict]) -> str:
+    """Deterministic brief for the Download button right after a refresh (no LLM),
+    so Download works in the main flow and is quota-independent."""
+    if not results:
+        return ""
+    top = max(results, key=lambda r: (r.get("score") or 0))
+    dec = top.get("decision") or {}
+    tp = top.get("trade_plan") or {}
+    gates = top.get("gates") or {}
+    ez = tp.get("entry_zone") or []
+    stt = budget.status()
+    lines = [f"# BANDAR brief — {top.get('symbol')} ({AS_OF.isoformat()} WIB)", "",
+             f"Score {top.get('score')}/{top.get('denominator')} · decision "
+             f"{dec.get('label')} · deploy {dec.get('deploy_pct')}", ""]
+    if len(ez) > 1:
+        lines.append(f"- Entry zone: {ez[0]}-{ez[1]}")
+    elif ez:
+        lines.append(f"- Entry: {ez[0]}")
+    if tp.get("stop_close") is not None:
+        lines.append(f"- Close-based stop: {tp['stop_close']}")
+    if tp.get("lots") is not None:
+        lines.append(f"- Size: {tp['lots']} lots")
+    if (gates.get("no_chase") or {}).get("triggered"):
+        lines.append("- No-chase gate triggered — WAIT for pullback (never chase)")
+    lines += ["", "**Watchlist:**"]
+    for r in results:
+        lines.append(f"- {r.get('symbol')}: {r.get('score')}/{r.get('denominator')} "
+                     f"{(r.get('decision') or {}).get('label', '')}")
+    lines += ["", f"_Sectors credits used: {stt['total_spent']}/1000 · "
+                  "deterministic engine, no LLM._"]
     return "\n".join(lines)
 
 
@@ -503,13 +539,17 @@ if prompt:
 col_a, col_b, col_c = st.columns([1, 1, 2.4])
 with col_a:
     if st.button(":material/sync: Force Live Refresh", type="primary",
-                 help="Fetch today's windows and re-score the watchlist"):
+                 help="Fetch today's windows and re-score the watchlist",
+                 use_container_width=True):
         do_refresh()
 with col_b:
     st.download_button(
         ":material/download: Download Brief", data=st.session_state["brief_md"] or "_no brief yet_",
         file_name=f"bandar_brief_{AS_OF.isoformat()}.md", mime="text/markdown",
         disabled=not st.session_state["brief_md"],
+        help=("Download the latest brief as Markdown. "
+              "Run a refresh or ask first to generate one."),
+        use_container_width=True,
     )
 with col_c:                                                  # P4: fill dead space
     # computed HERE (after the refresh handler) so the chip updates same-rerun
@@ -630,13 +670,21 @@ def context_panel(rows: list[dict], as_of) -> str:
     data_date = max((r.get("as_of") or "" for r in rows), default="—")
     watch_n = len(memory.load_watchlist())
     act = sum(1 for r in rows if _is_actionable(r))
+    # color-code Actionable: 0 = stand aside (red) · 1-2 = selective (amber) · 3+ = green
+    act_color = "var(--bd-red)" if act == 0 else ("var(--bd-amber)" if act <= 2
+                                                  else "var(--bd-green)")
     top = rows[0] if rows else None
     regime = ((top.get("gates") or {}).get("regime", "—") if top else "—")
     kv = [("Anchor (WIB)", as_of.isoformat()), ("Data as of", data_date),
-          ("Scored", f"{len(rows)}/{watch_n}"), ("Actionable", str(act)),
+          ("Scored", f"{len(rows)}/{watch_n}"),
+          ("Actionable", f'<span style="color:{act_color}">{act}</span>'),
           ("Top regime", regime_label(regime) if regime != "—" else "—")]
     body = "".join(f'<div class="bd-kvrow"><span>{k}</span><b>{v}</b></div>'
                    for k, v in kv)
+    reg = regime_label(regime) if regime != "—" else "Unknown regime"
+    body += (f'<div class="bd-side-sum">{reg} · {act} of {len(rows)} actionable — '
+             + ("stand aside today.</div>" if act == 0
+                else "setup(s) available today.</div>"))
     return f'<div class="bd-side"><div class="bd-side-h">Desk context</div>{body}</div>'
 
 
@@ -736,6 +784,9 @@ if agent_out is not None:
                        "numeric trace validator (unverifiable)._\n")
 
         st.write_stream(_stream)
+        if agent_out.get("deterministic_fallback"):
+            st.caption("_LLM narration unavailable — showing deterministic engine summary "
+                       "(every figure copied verbatim from tool results)._")
     else:
         st.warning(f"⚠️ {agent_out['message']}")
 
