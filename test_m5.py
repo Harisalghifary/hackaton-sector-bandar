@@ -328,3 +328,27 @@ def test_workings_validator_audit_lists_removed_figures(env, monkeypatch):
     assert "Validator audit" in text and "12.3" in text
     assert "cumulative net buying" in text
     assert "anti-fabrication trace validator" in text       # M2 warning wording
+
+
+def test_deltas_table_survives_null_scores(env):
+    """Prior snapshot with a null score (or unscored new row) renders honest '—',
+    never crashes the comparison (TypeError: None > int)."""
+    at = boot(env)
+    at.session_state["deltas"] = [{
+        "ticker": "BBRI", "as_of": "2026-10-08", "has_prev": True,
+        "prev_date": "2026-10-07", "score_old": None, "score_new": 3,
+        "denominator_old": 5, "denominator_new": 5,
+        "decision_old": None, "decision_new": "WAIT",
+        "gate_override": False, "changed": True,
+    }, {
+        "ticker": "BMRI", "as_of": "2026-10-08", "has_prev": False,
+        "prev_date": None, "score_old": None, "score_new": None,
+        "denominator_old": None, "denominator_new": 5,
+        "decision_old": None, "decision_new": None,
+        "gate_override": False, "changed": False,
+    }]
+    at.run()
+    assert not at.exception
+    text = all_text(at)
+    assert "WATCHLIST DELTAS" in text
+    assert "None" not in text.split("WATCHLIST DELTAS", 1)[1].split("Ask Bandar", 1)[0]

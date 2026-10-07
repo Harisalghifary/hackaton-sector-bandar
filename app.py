@@ -734,25 +734,32 @@ def deltas_table(deltas: list[dict]) -> str:
         dec_new = d["decision_new"] or "—"
         gate = d.get("gate_override")
         kind = "amber" if gate else ("red" if dec_new == "WAIT" else "green")
-        score_cell = f'{d["score_new"]}/{d["denominator_new"]}'
-        score_cell += dots_html(d["score_new"], d["denominator_new"], kind)
+        new, old = d.get("score_new"), d.get("score_old")
+        if isinstance(new, (int, float)):
+            score_cell = f'{new}/{d["denominator_new"]}'
+            score_cell += dots_html(new, d["denominator_new"], kind)
+        else:
+            score_cell = '<span class="bd-null">—</span>'   # honest null, never "None"
+        prior = "—"
         if d["has_prev"]:
-            old, new = d["score_old"], d["score_new"]
+            prior = d.get("prev_date") or "—"
+            try:
+                prior += f" ({(AS_OF - datetime.fromisoformat(prior).date()).days}d)"
+            except (ValueError, TypeError):
+                pass
+        if d["has_prev"] and isinstance(old, (int, float)) and isinstance(new, (int, float)):
             if new > old:
                 delta_cell = f'<span class="bd-up">▲ {old}→{new}</span>'
             elif new < old:
                 delta_cell = f'<span class="bd-down">▼ {old}→{new}</span>'
             else:
                 delta_cell = f'<span class="bd-same">= {old}→{new}</span>'
-            prior = d.get("prev_date") or "—"
-            try:
-                prior += f" ({(AS_OF - datetime.fromisoformat(prior).date()).days}d)"
-            except (ValueError, TypeError):
-                pass
+        elif d["has_prev"]:
+            delta_cell = '<span class="bd-null">—</span>'   # prior exists, score null
         else:
             delta_cell = '<span class="bd-same">new</span>'
-            prior = "—"
-        dec_cell = (f'{d["decision_old"]} → ' if d["has_prev"] else "") + _pill(dec_new, kind)
+        dec_cell = (f'{d["decision_old"]} → '
+                    if d["has_prev"] and d.get("decision_old") else "") + _pill(dec_new, kind)
         gate_cell = _pill("⊘ no-chase", "amber") if gate else '<span class="bd-null">—</span>'
         rows.append(f'<tr><td class="bd-mono">{d["ticker"]}</td>'
                     f'<td class="bd-mono">{score_cell}</td>'

@@ -219,9 +219,13 @@ def build_delta(result: dict, prev: dict | None) -> dict:
 
 def render_delta(delta: dict) -> str:
     """Human one-liner: 'BBRI 2/5 WAIT (Oct 3: 4/5 DEFENSIVE)' — old->new + prior date."""
+    def pair(which: str) -> str:
+        s, dn = delta.get(f"score_{which}"), delta.get(f"denominator_{which}")
+        return f"{s}/{dn}" if isinstance(s, (int, float)) else "—"   # honest null
+
     if not delta.get("has_prev"):
-        return f"{delta['ticker']} {delta['score_new']}/{delta['denominator_new']} " \
+        return f"{delta['ticker']} {pair('new')} " \
                f"{delta['decision_new']} (first scored {delta['as_of']})"
-    return (f"{delta['ticker']} {delta['score_old']}/{delta['denominator_old']} "
-            f"{delta['decision_old']} -> {delta['score_new']}/{delta['denominator_new']} "
+    return (f"{delta['ticker']} {pair('old')} "
+            f"{delta['decision_old']} -> {pair('new')} "
             f"{delta['decision_new']} (prior {delta['prev_date']})")
