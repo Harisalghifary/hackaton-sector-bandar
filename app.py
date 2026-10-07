@@ -139,15 +139,14 @@ section[data-testid="stApp"], [data-testid="stAppScrollToBottomContainer"] {
 [data-testid="stDeployButton"] button, [data-testid="stDeployButton"] p,
 [data-testid="stMainMenu"] button { color: @muted@ !important; }
 [data-testid="stMainMenu"] svg { fill: @muted@; }
-/* One cohesive input pill: the container is the border; textarea + send button sit
-   inside it transparently. Single brand-colored focus ring via :focus-within (no
-   double red+blue border, no detached arrow). */
-[data-testid="stChatInput"] { background: @panel@; border: 1px solid @border@;
-  border-radius: 12px; padding: 4px 6px 4px 14px;
-  display: flex; align-items: center; gap: 6px; }
-[data-testid="stChatInput"]:focus-within { border-color: @accent@;
+/* Single cohesive input pill: Streamlit's INNER wrapper (stChatInput > div) is the
+   pill; the outer stChatInput stays transparent so there is no giant box and no
+   double border. Textarea + send arrow sit inside the one pill. */
+[data-testid="stChatInput"] { background: transparent; border: none; padding: 0; }
+[data-testid="stChatInput"] > div { background: @panel@; border: 1px solid @border@;
+  border-radius: 12px; }
+[data-testid="stChatInput"] > div:focus-within { border-color: @accent@;
   box-shadow: 0 0 0 3px @glow@; }
-[data-testid="stChatInput"] > div { background: transparent !important; flex: 1; }
 [data-testid="stChatInputTextArea"] { background: transparent !important;
   color: @text@ !important; border: none !important; box-shadow: none !important;
   outline: none !important; }
@@ -253,6 +252,33 @@ section[data-testid="stApp"], [data-testid="stAppScrollToBottomContainer"] {
 /* ---- P4: desk-context side panel + last-scored chip ---- */
 .bd-side { background: @panel@; border: 1px solid @border@; border-radius: 16px;
   padding: 16px 18px; height: 100%; }
+/* Equal-height hero row: stretch BOTH columns and flex-fill each box's wrapper
+   chain so the TOP PICK card and the desk-context panel share exact top/bottom
+   bounds. Scoped with :has(.bd-side) so no other row is affected. */
+[data-testid="stHorizontalBlock"]:has(.bd-side) { align-items: stretch; }
+[data-testid="stHorizontalBlock"]:has(.bd-side) > [data-testid="stColumn"],
+[data-testid="stHorizontalBlock"]:has(.bd-side)
+  > [data-testid="stColumn"] > [data-testid="stVerticalBlock"],
+[data-testid="stHorizontalBlock"]:has(.bd-side) [data-testid="stElementContainer"]:has(.bd-card),
+[data-testid="stHorizontalBlock"]:has(.bd-side) [data-testid="stElementContainer"]:has(.bd-side),
+[data-testid="stHorizontalBlock"]:has(.bd-side) [data-testid="stMarkdown"]:has(.bd-card),
+[data-testid="stHorizontalBlock"]:has(.bd-side) [data-testid="stMarkdown"]:has(.bd-side),
+[data-testid="stHorizontalBlock"]:has(.bd-side) [data-testid="stMarkdown"]:has(.bd-card) > div,
+[data-testid="stHorizontalBlock"]:has(.bd-side) [data-testid="stMarkdown"]:has(.bd-side) > div,
+[data-testid="stHorizontalBlock"]:has(.bd-side) [data-testid="stMarkdownContainer"]:has(.bd-card),
+[data-testid="stHorizontalBlock"]:has(.bd-side) [data-testid="stMarkdownContainer"]:has(.bd-side) {
+  display: flex; flex-direction: column; margin-top: 0; margin-bottom: 0; }
+[data-testid="stHorizontalBlock"]:has(.bd-side)
+  > [data-testid="stColumn"] > [data-testid="stVerticalBlock"],
+[data-testid="stHorizontalBlock"]:has(.bd-side) [data-testid="stElementContainer"]:has(.bd-card),
+[data-testid="stHorizontalBlock"]:has(.bd-side) [data-testid="stElementContainer"]:has(.bd-side),
+[data-testid="stHorizontalBlock"]:has(.bd-side) [data-testid="stMarkdown"]:has(.bd-card),
+[data-testid="stHorizontalBlock"]:has(.bd-side) [data-testid="stMarkdown"]:has(.bd-side),
+[data-testid="stHorizontalBlock"]:has(.bd-side) [data-testid="stMarkdown"]:has(.bd-card) > div,
+[data-testid="stHorizontalBlock"]:has(.bd-side) [data-testid="stMarkdown"]:has(.bd-side) > div,
+[data-testid="stHorizontalBlock"]:has(.bd-side) [data-testid="stMarkdownContainer"]:has(.bd-card),
+[data-testid="stHorizontalBlock"]:has(.bd-side) [data-testid="stMarkdownContainer"]:has(.bd-side),
+.bd-card, .bd-side { flex: 1; }
 .bd-side-h { font-size: .72rem; text-transform: uppercase; letter-spacing: .08em;
   color: @muted@; margin-bottom: 10px; }
 .bd-kvrow { display: flex; justify-content: space-between; gap: 12px;
@@ -616,6 +642,7 @@ def context_panel(rows: list[dict], as_of) -> str:
 
 prior = [] if scores else restore_from_memory()
 shown = scores or prior
+_mem_hint = False
 hero_l, hero_r = st.columns([2, 1], gap="medium")
 with hero_r:
     st.markdown(context_panel(shown, AS_OF), unsafe_allow_html=True)
@@ -628,10 +655,14 @@ with hero_l:
         best = max(prior, key=lambda r: (r.get("score") or 0))
         st.markdown(pick_card(best, badge="last recorded run from memory (0 cr)"),
                     unsafe_allow_html=True)
-        st.caption("Press **Force Live Refresh** for today's data.")
+        _mem_hint = True
     else:
         st.info("No scores yet — press **Force Live Refresh** to score the watchlist, "
                 "or ask a question below.")
+# Caption lives OUTSIDE the hero columns so both boxes share one row height and
+# the desk-context panel can stretch to exactly match the pick card.
+if _mem_hint:
+    st.caption("Press **Force Live Refresh** for today's data.")
 
 
 # ------------------------------------------------------------- WATCHLIST DELTAS
