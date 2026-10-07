@@ -66,7 +66,13 @@ def _post_with_retry(url: str, headers: dict, body: dict, timeout: float):
     for wait in RETRY_WAITS:
         if wait:
             time.sleep(wait)
-        resp = requests.post(url, headers=headers, json=body, timeout=timeout)
+        try:
+            resp = requests.post(url, headers=headers, json=body, timeout=timeout)
+        except requests.exceptions.RequestException as exc:
+            # Network-level failure (read/connect timeout, DNS, reset). Do NOT retry the
+            # same model (a timeout already cost `timeout` seconds); surface as LLMError
+            # so the caller's degrade chain tries the next model and guards stay graceful.
+            raise LLMError(f"transport failure: {type(exc).__name__}: {exc}") from exc
         if resp.status_code not in RETRY_STATUSES:
             return resp
         if _is_quota(resp):
@@ -80,7 +86,7 @@ class LLMError(Exception):
 
 class GeminiLLM:
     def __init__(self, api_key: str | None = None, model: str | None = None,
-                 temperature: float | None = None, timeout: float = 60.0):
+                 temperature: float | None = None, timeout: float = 30.0):
         self.api_key = api_key if api_key is not None else os.environ.get("GEMINI_API_KEY", "")
         self.model = model or RUNTIME_LLM["primary"]        # spec name (LOCKED)
         self.model_id = resolve_model(self.model)           # real API id
@@ -106,11 +112,15 @@ class GeminiLLM:
         models = [self.model_id] + [m for m in GEMINI_DEGRADE if m != self.model_id]
         last: LLMError | None = None
         for model in models:
-            resp = _post_with_retry(
-                GEMINI_URL.format(model=model),
-                headers={"x-goog-api-key": self.api_key, "Content-Type": "application/json"},
-                body=body, timeout=self.timeout,
-            )
+            try:
+                resp = _post_with_retry(
+                    GEMINI_URL.format(model=model),
+                    headers={"x-goog-api-key": self.api_key, "Content-Type": "application/json"},
+                    body=body, timeout=self.timeout,
+                )
+            except LLMError as exc:              # timeout/network -> try next model
+                last = exc
+                continue
             if resp.status_code == 200:
                 try:
                     return _parse_gemini(resp.json(), purpose)

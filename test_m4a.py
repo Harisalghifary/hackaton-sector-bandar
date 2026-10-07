@@ -454,3 +454,18 @@ def test_model_id_resolution_keeps_locked_config():
     assert resolve_model("claude-sonnet-4.5") == "claude-sonnet-4-5"
     assert resolve_model("some-future-model") == "some-future-model"  # passthrough
     assert RUNTIME_LLM["primary"] == "gemini-flash-3.8"              # config untouched
+
+
+def test_network_timeout_becomes_graceful_fallback(ctx, monkeypatch):
+    """A read/connect timeout must become LLMError -> graceful fallback, never a crash."""
+    import requests as _requests
+    from agent import llm as llm_mod
+
+    def boom(*a, **k):
+        raise _requests.exceptions.ReadTimeout("read timed out")
+
+    monkeypatch.setattr(llm_mod.requests, "post", boom)
+    p = Planner(llm_mod.GeminiLLM(api_key="TESTKEY"), ctx)
+    out = p.classify_intent("top pick today?")
+    assert out["intent"] == "fallback"
+    assert "transport failed" in out["reason"] and "ReadTimeout" in out["reason"]
